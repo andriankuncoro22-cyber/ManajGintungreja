@@ -5,12 +5,12 @@ import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { 
-  FileText, 
-  Map, 
-  TrendingUp, 
-  Clock, 
-  CheckCircle2, 
+import {
+  FileText,
+  Map,
+  TrendingUp,
+  Clock,
+  CheckCircle2,
   ChevronRight,
   Users,
   LayoutDashboard,
@@ -61,7 +61,7 @@ export default function DashboardPage() {
         calendarId: calendarId,
         date: localDateStr
       });
-      
+
       if (res && res.success && res.items) {
         setTodayAgenda(res.items);
       } else {
@@ -120,7 +120,7 @@ export default function DashboardPage() {
             <LayoutDashboard className="h-7 w-7 md:h-8 md:w-8 text-primary" />
             Dashboard Desa
           </h1>
-          <p className="text-muted-foreground text-xs md:text-base">Pusat database terpadu Desa Cinangsi.</p>
+          <p className="text-muted-foreground text-xs md:text-base">Pusat database terpadu Desa Gintungreja.</p>
         </div>
       </header>
 
@@ -135,7 +135,7 @@ export default function DashboardPage() {
             <p className="text-[9px] md:text-[10px] text-muted-foreground mt-1 md:mt-2 font-medium">Database Desa</p>
           </CardContent>
         </Card>
-        
+
         <Card className="border shadow-sm bg-card rounded-2xl md:rounded-3xl overflow-hidden border-primary/10">
           <CardHeader className="p-4 md:p-5 pb-0 flex flex-row items-center justify-between space-y-0">
             <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">SPPD</p>
@@ -179,8 +179,8 @@ export default function DashboardPage() {
                   <CardTitle className="text-base md:text-lg">Agenda Hari Ini</CardTitle>
                   <CardDescription className="text-[10px] md:text-sm">Sinkronisasi kalender desa</CardDescription>
                 </div>
-                <RefreshCw 
-                  className={cn("h-4 w-4 text-primary cursor-pointer", isAgendaLoading && "animate-spin")} 
+                <RefreshCw
+                  className={cn("h-4 w-4 text-primary cursor-pointer", isAgendaLoading && "animate-spin")}
                   onClick={fetchTodayAgenda}
                 />
               </div>
@@ -234,12 +234,12 @@ export default function DashboardPage() {
                 </div>
               ) : (kegiatans || []).length > 0 ? (
                 kegiatans?.map((item) => (
-                  <KegiatanCard 
-                    key={item.id} 
+                  <KegiatanCard
+                    key={item.id}
                     kegiatan={{
                       ...item,
                       imageUrl: item.imageUrls?.[0] === "Tersimpan di Drive" ? "https://picsum.photos/seed/" + item.id + "/600/400" : (item.imageUrls?.[0] || `https://picsum.photos/seed/${item.id}/600/400`)
-                    }} 
+                    }}
                   />
                 ))
               ) : (
@@ -302,9 +302,8 @@ export default function DashboardPage() {
               {sppds && sppds.length > 0 ? (
                 sppds.map((sppd, i) => (
                   <div key={i} className="flex items-center gap-4 p-4 rounded-2xl border bg-card hover:border-primary/30 transition-all shadow-sm">
-                    <div className={`h-10 w-10 md:h-12 md:w-12 rounded-xl flex items-center justify-center shrink-0 ${
-                      sppd.approvalStatus === 'approved' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'
-                    }`}>
+                    <div className={`h-10 w-10 md:h-12 md:w-12 rounded-xl flex items-center justify-center shrink-0 ${sppd.approvalStatus === 'approved' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'
+                      }`}>
                       {sppd.approvalStatus === 'approved' ? <CheckCircle2 className="h-5 w-5 md:h-6 md:w-6" /> : <Clock className="h-5 w-5 md:h-6 md:w-6" />}
                     </div>
                     <div className="flex-1 min-w-0">

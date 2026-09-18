@@ -1,5 +1,6 @@
 /**
  * @fileOverview Konfigurasi terpusat untuk integrasi layanan Google.
+ * Tersinkronisasi dengan variabel environment (.env).
  */
 
 interface GoogleConfig {
@@ -10,7 +11,6 @@ interface GoogleConfig {
 
   /**
    * ID Kalender Google yang akan digunakan untuk manajemen agenda.
-   * Menggunakan 'primary' adalah opsi paling aman untuk merujuk ke kalender utama.
    */
   calendarId: string;
 
@@ -21,8 +21,8 @@ interface GoogleConfig {
 }
 
 export const GOOGLE_CONFIG: GoogleConfig = {
-  // URL Deployment sesuai parameter backend user
-  appsScriptUrl: "https://script.google.com/macros/s/AKfycbyDBIFZ8CxxZHOhcgWvbqicLuBVtxFrynn5Zpt7sOypeexOXnUvQwL3mrIP13D_PW97/exec",
-  calendarId: "primary", // Diubah ke 'primary' untuk mencegah error 'Not Found'
+  // URL Deployment sesuai parameter backend user / .env
+  appsScriptUrl: process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || "https://script.google.com/macros/s/AKfycbwtDubK3BwugET91KfaYvQE1E1LQnoZex4dlC2NCavxlYHSy-31vL3BHb_3a2KxhRAk/exec",
+  calendarId: process.env.NEXT_PUBLIC_GOOGLE_CALENDAR_ID || process.env.GOOGLE_CALENDAR_ID || "desagintungreja1991@gmail.com",
   parentFolderId: "1-yZW2Z7V5J2j2aVp9p4aJ3R8Q9J4v8tU",
 };

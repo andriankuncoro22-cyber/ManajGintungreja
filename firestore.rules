@@ -11,9 +11,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email.lower() == 'admin@cinangsi.id' ||
-        request.auth.token.email.lower() == 'cinangsi@gmail.id' ||
-        request.auth.token.email.lower() == 'cinangsi.gandrungmangu@gmail.com'
+        request.auth.token.email.lower() == 'admin@gintungreja.id' ||
+        request.auth.token.email.lower() == 'gintungreja@gmail.id' ||
+        request.auth.token.email.lower() == 'desagintungreja1991@gmail.com'
       );
     }
 
@@ -32,7 +32,7 @@ service cloud.firestore {
       allow update: if (isAdmin()) || (isSignedIn() && (
         (resource.data.get('uid', '') == request.auth.uid) ||
         (resource.data.get('email', '').lower() == request.auth.token.email.lower()) ||
-        ((resource.data.get('username', '').lower() + "@cinangsi.id") == request.auth.token.email.lower()) ||
+        ((resource.data.get('username', '').lower() + "@gintungreja.id") == request.auth.token.email.lower()) ||
         (request.resource.data.get('uid', '') == request.auth.uid) ||
         (docId == request.auth.uid)
       ));

@@ -1,14 +1,14 @@
 /**
  * @fileOverview Daftar kredensial internal untuk Portal Absensi.
- * Hanya menyertakan admin sistem utama. Personel lain dikelola via Firestore.
+ * Tersinkronisasi dengan variabel environment (.env).
  */
 
 export const INTERNAL_USERS = [
-  { 
-    username: "admincinangsi", 
-    email: "admin@cinangsi.id", 
-    password: "admin00", 
-    role: "admin_absensi", 
-    nama: "ADMINISTRATOR ABSENSI" 
+  {
+    username: "admingintungreja",
+    email: process.env.NEXT_PUBLIC_ADMIN_EMAIL || "admin@gintungreja.id",
+    password: process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "gintungreja123",
+    role: "admin_absensi",
+    nama: "ADMINISTRATOR ABSENSI"
   }
 ];

@@ -48,7 +48,7 @@ export const CLASSIFICATION_CODES = [
  */
 export async function getNextSequenceNumber(db: Firestore, kategori: string, classification: string = "000"): Promise<string> {
   const currentYear = new Date().getFullYear().toString();
-  
+
   // Gunakan kategori 'sppd' sebagai acuan urutan untuk 'surat_tugas_sppd' agar sinkron
   const targetCategory = kategori === 'surat_tugas_sppd' ? 'surat_keluar' : kategori;
 
@@ -56,7 +56,7 @@ export async function getNextSequenceNumber(db: Firestore, kategori: string, cla
     collection(db, "buku_agenda"),
     where("kategori", "==", targetCategory),
     orderBy("createdAt", "desc"),
-    limit(20) 
+    limit(20)
   );
 
   const snapshot = await getDocs(q);
@@ -65,15 +65,15 @@ export async function getNextSequenceNumber(db: Firestore, kategori: string, cla
   if (!snapshot.empty) {
     // Cari dokumen terbaru yang dibuat pada tahun berjalan
     const yearDocs = snapshot.docs.filter(d => (d.data().createdAt || "").substring(0, 4) === currentYear);
-    
+
     if (yearDocs.length > 0) {
       const latestDoc = yearDocs[0].data();
       const lastNomor = latestDoc.nomor || "";
-      
+
       // Bedah nomor berdasarkan pemisah miring (/)
       // Contoh: 027 / 001 / BA / 2026 -> parts: ["027", "001", "BA", "2026"]
       const parts = lastNomor.split(/[\/\s]+/).filter(Boolean);
-      
+
       if (parts.length >= 2) {
         // Pada standar penomoran desa, nomor urut biasanya berada di segmen kedua
         const possibleSeq = parts[1];
@@ -95,14 +95,14 @@ export async function getNextSequenceNumber(db: Firestore, kategori: string, cla
 
   // Mengembalikan format tanpa spasi agar parsing di frontend lebih akurat
   if (kategori === "sppd") {
-    return `000.1.2.3/${paddedNum}/04/${currentYear}`;
+    return `000.1.2.3/${paddedNum}/09/${currentYear}`;
   }
-  
+
   if (kategori === "surat_tugas_sppd") {
-    return `800.1.11.1/${paddedNum}/04/${currentYear}`;
+    return `800.1.11.1/${paddedNum}/09/${currentYear}`;
   }
-  
-  return `${classification}/${paddedNum}/04/${currentYear}`;
+
+  return `${classification}/${paddedNum}/09/${currentYear}`;
 }
 
 /**

@@ -31,7 +31,7 @@ export default function LandingPage() {
     if (!db) return null
     return doc(db, "settings", "village")
   }, [db])
-  
+
   const { data: configData } = useDoc(configRef)
 
   if (!mounted) return null
@@ -42,10 +42,10 @@ export default function LandingPage() {
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/20 overflow-hidden relative">
             {configData?.logoBase64 ? (
-              <Image 
-                src={configData.logoBase64} 
-                alt="Logo Desa" 
-                fill 
+              <Image
+                src={configData.logoBase64}
+                alt="Logo Desa"
+                fill
                 className="object-contain p-1.5"
                 unoptimized
               />
@@ -54,14 +54,14 @@ export default function LandingPage() {
             )}
           </div>
           <div className="flex flex-col">
-            <span className="text-xl font-black tracking-tighter uppercase text-primary leading-none">CINANGSI</span>
+            <span className="text-xl font-black tracking-tighter uppercase text-primary leading-none">GINTUNGREJA</span>
             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Sistem Manajemen Desa</span>
           </div>
         </div>
 
         {/* Desktop Nav */}
         <div className="hidden md:flex gap-2">
-           <Button asChild variant="outline" className="rounded-full font-bold border-primary/20 text-primary hover:bg-primary/5">
+          <Button asChild variant="outline" className="rounded-full font-bold border-primary/20 text-primary hover:bg-primary/5">
             <Link href="/absensi/login/">Absensi</Link>
           </Button>
           <Button asChild variant="default" className="rounded-full font-bold bg-slate-900 hover:bg-slate-800 text-white">
@@ -89,9 +89,9 @@ export default function LandingPage() {
                   </div>
                   <SheetTitle className="text-primary font-black uppercase tracking-tighter">Menu Utama</SheetTitle>
                 </div>
-                <SheetDescription className="text-[10px] font-bold uppercase tracking-widest">Digitalisasi Desa Cinangsi</SheetDescription>
+                <SheetDescription className="text-[10px] font-bold uppercase tracking-widest">Digitalisasi Desa Gintungreja</SheetDescription>
               </SheetHeader>
-              
+
               <div className="py-8 space-y-3">
                 <Button asChild variant="ghost" className="w-full h-14 justify-start gap-4 rounded-2xl text-sm font-black uppercase tracking-tight hover:bg-primary/5 hover:text-primary transition-all">
                   <Link href="/login/">
@@ -101,7 +101,7 @@ export default function LandingPage() {
                     Masuk Sistem
                   </Link>
                 </Button>
-                
+
                 <Button asChild variant="ghost" className="w-full h-14 justify-start gap-4 rounded-2xl text-sm font-black uppercase tracking-tight hover:bg-primary/5 hover:text-primary transition-all">
                   <Link href="/absensi/login/">
                     <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -110,7 +110,7 @@ export default function LandingPage() {
                     Absensi Perangkat
                   </Link>
                 </Button>
-                
+
                 <Button asChild variant="ghost" className="w-full h-14 justify-start gap-4 rounded-2xl text-sm font-black uppercase tracking-tight hover:bg-slate-100 transition-all">
                   <Link href="/absensi-admin/login/">
                     <div className="h-10 w-10 rounded-xl bg-slate-900 flex items-center justify-center shrink-0">
@@ -122,10 +122,10 @@ export default function LandingPage() {
               </div>
 
               <div className="absolute bottom-10 left-6 right-6 border-t pt-6">
-                 <div className="flex flex-col gap-1">
-                   <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Pemerintah Desa Cinangsi</p>
-                   <p className="text-[9px] text-muted-foreground/60 font-medium">Kabupaten Cilacap, Jawa Tengah</p>
-                 </div>
+                <div className="flex flex-col gap-1">
+                  <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Pemerintah Desa Gintungreja</p>
+                  <p className="text-[9px] text-muted-foreground/60 font-medium">Kabupaten Cilacap, Jawa Tengah</p>
+                </div>
               </div>
             </SheetContent>
           </Sheet>
@@ -136,18 +136,18 @@ export default function LandingPage() {
         <section className="relative w-full py-20 lg:py-32 overflow-hidden bg-slate-900">
           <div className="absolute inset-0 z-0">
             {configData?.heroPhotoBase64 ? (
-              <Image 
-                src={configData.heroPhotoBase64} 
-                alt="Background Desa" 
-                fill 
+              <Image
+                src={configData.heroPhotoBase64}
+                alt="Background Desa"
+                fill
                 className="object-cover opacity-40"
                 unoptimized
               />
             ) : (
-              <Image 
-                src="https://picsum.photos/seed/desa/1920/1080" 
-                alt="Background Placeholder" 
-                fill 
+              <Image
+                src="https://picsum.photos/seed/desa/1920/1080"
+                alt="Background Placeholder"
+                fill
                 className="object-cover opacity-30 grayscale"
                 data-ai-hint="village landscape"
               />
@@ -157,13 +157,13 @@ export default function LandingPage() {
 
           <div className="container relative z-10 mx-auto px-4 text-center space-y-10">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/20 border border-primary/30 backdrop-blur-sm text-primary-foreground text-xs font-black uppercase tracking-widest animate-in fade-in slide-in-from-top-4 duration-1000">
-              <Globe className="h-3 w-3" /> Digitalisasi Desa Cinangsi
+              <Globe className="h-3 w-3" /> Digitalisasi Desa Gintungreja
             </div>
-            
+
             <div className="max-w-4xl mx-auto space-y-6">
               <h1 className="text-4xl md:text-6xl lg:text-7xl font-black text-white uppercase tracking-tighter leading-[0.9] drop-shadow-2xl animate-in fade-in slide-in-from-bottom-8 duration-700">
-                Sistem Administrasi <br /> 
-                <span className="text-primary italic">Desa Cinangsi</span>
+                Sistem Administrasi <br />
+                <span className="text-primary italic">Desa Gintungreja</span>
               </h1>
               <p className="text-lg md:text-xl text-slate-300 font-medium max-w-2xl mx-auto leading-relaxed animate-in fade-in slide-in-from-bottom-10 duration-1000">
                 Solusi cerdas manajemen desa: Database Terpadu, Absensi Digital GPS, Dokumentasi Kegiatan, dan Arsip Digital dalam satu genggaman.
@@ -224,13 +224,13 @@ export default function LandingPage() {
                     <Home className="h-4 w-4 text-white" />
                   )}
                 </div>
-                <span className="text-xl font-black tracking-tighter text-white">CINANGSI.ID</span>
+                <span className="text-xl font-black tracking-tighter text-white">GINTUNGREJA.ID</span>
               </div>
               <p className="max-w-md leading-relaxed text-sm">
-                Pemerintah Desa Cinangsi berkomitmen untuk terus berinovasi dalam memberikan pelayanan terbaik melalui pemanfaatan teknologi informasi yang modern.
+                Pemerintah Desa Gintungreja berkomitmen untuk terus berinovasi dalam memberikan pelayanan terbaik melalui pemanfaatan teknologi informasi yang modern.
               </p>
             </div>
-            
+
             <div className="space-y-4">
               <h4 className="text-white font-bold text-sm uppercase tracking-widest">Akses Cepat</h4>
               <ul className="space-y-3 text-sm">
@@ -250,7 +250,7 @@ export default function LandingPage() {
 
           <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-6">
             <p className="text-xs font-bold uppercase tracking-widest">
-              &copy; 2026 Pemerintah Desa Cinangsi. Seluruh Hak Cipta Dilindungi.
+              &copy; 2026 Pemerintah Desa Gintungreja. Seluruh Hak Cipta Dilindungi.
             </p>
             <div className="flex gap-6 text-[10px] font-black uppercase tracking-tighter">
               <span>Kecamatan Gandrungmangu</span>

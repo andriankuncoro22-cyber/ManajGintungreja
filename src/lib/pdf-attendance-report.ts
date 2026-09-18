@@ -9,17 +9,13 @@ interface AttendanceReportData {
   year: string;
   data: any[];
   logoBase64?: string | null;
-  settings?: any; 
+  settings?: any;
 }
 
 const DAYS_MAP = ['minggu', 'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'];
 
 export const generateAttendancePDF = async (report: AttendanceReportData): Promise<Blob> => {
   const { month, year, data, logoBase64, settings } = report;
-  
-  // Fallback settings jika belum diatur di database
-  const workDays = settings?.hari_kerja || ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
-  const holidays = settings?.hari_libur || [];
 
   const doc = new jsPDF({
     orientation: "landscape",
@@ -36,7 +32,7 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
   const monthName = format(dateObj, "MMMM", { locale: localeID }).toUpperCase();
   const daysInMonth = new Date(parseInt(year), monthIdx + 1, 0).getDate();
 
-  const logoSource = (logoBase64 && logoBase64.length > 50) ? logoBase64 : "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Lambang_Kabupaten_Cilacap.png/120px-Lambang_Kabupaten_Cilacap.png";
+  const logoSource = (logoBase64 && logoBase64.length > 50) ? logoBase64 : "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/Lambang_Kabupaten_Cilacap.png/120px-Lambang_Kabupaten_Cilacap.png";
   const logoImg = await loadImage(logoSource);
 
   const addLandscapeKop = () => {
@@ -48,11 +44,11 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
     doc.text("PEMERINTAH KABUPATEN CILACAP", pageWidth / 2, 14, { align: "center" });
     doc.text("KECAMATAN GANDRUNGMANGU", pageWidth / 2, 19, { align: "center" });
     doc.setFontSize(14);
-    doc.text("DESA CINANGSI", pageWidth / 2, 25, { align: "center" });
+    doc.text("DESA GINTUNGREJA", pageWidth / 2, 25, { align: "center" });
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
-    doc.text("Jalan H.lbrahim Nomor 01 Cinangsi, Kec. Gandrungmangu, Cilacap, Jawa Tengah,", pageWidth / 2, 29, { align: "center" });
-    doc.text("Laman : www.cinangsi-gandrungmangu.cilacapkab.go.id, Pos-el : desacinangsi01@gmail.com", pageWidth / 2, 33, { align: "center" });
+    doc.text("Jalan Raya Pelita KM 5 Gintungreja, Kec. Gandrungmangu, Cilacap, Jawa Tengah,", pageWidth / 2, 29, { align: "center" });
+    doc.text("Tlp. 0852-2770-6666, Laman : www.gintungreja-cilacap.desa.id, Pos-el : www.desagintungreja1991@gmail.com", pageWidth / 2, 33, { align: "center" });
     doc.setLineWidth(0.5);
     doc.line(margin, 35, pageWidth - margin, 35);
     doc.setLineWidth(0.1);
@@ -63,7 +59,7 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
-  const title = `ABSENSI PERANGKAT DESA CINANGSI BULAN ${monthName} ${year}`;
+  const title = `ABSENSI PERANGKAT DESA GINTUNGREJA BULAN ${monthName} ${year}`;
   doc.text(title, pageWidth / 2, 48, { align: "center" });
 
   let currentY = 54;
@@ -75,7 +71,7 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     let x = margin;
-    
+
     doc.rect(x, y, colNoW, 8);
     doc.text("NO", x + colNoW / 2, y + 5, { align: "center" });
     x += colNoW;
@@ -89,13 +85,12 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
         const checkDate = new Date(parseInt(year), monthIdx, i);
         const dayName = DAYS_MAP[checkDate.getDay()];
         const dateStr = `${year}-${month}-${i.toString().padStart(2, '0')}`;
-        
-        const isWeekend = !workDays.includes(dayName);
-        const isManualHoliday = holidays.includes(dateStr);
-        
+        const isWeekend = settings?.hari_kerja ? !settings.hari_kerja.includes(dayName) : false;
+        const isManualHoliday = settings?.hari_libur ? settings.hari_libur.includes(dateStr) : false;
+
         if (isWeekend || isManualHoliday) {
-            doc.setFillColor(255, 190, 190); // Warna merah untuk libur (lebih jelas)
-            doc.rect(x, y, colDayW, 8, 'F');
+          doc.setFillColor(255, 200, 200);
+          doc.rect(x, y, colDayW, 8, 'F');
         }
       }
       doc.rect(x, y, colDayW, 8);
@@ -130,7 +125,7 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
     }
 
     let x = margin;
-    
+
     doc.rect(x, currentY, colNoW, rowH);
     doc.text((i + 1).toString(), x + colNoW / 2, currentY + 4.5, { align: "center" });
     x += colNoW;
@@ -149,35 +144,35 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
         const checkDate = new Date(parseInt(year), monthIdx, d);
         const dayName = DAYS_MAP[checkDate.getDay()];
         const dateStr = `${year}-${month}-${d.toString().padStart(2, '0')}`;
-        
-        const isWeekend = !workDays.includes(dayName);
-        const isManualHoliday = holidays.includes(dateStr);
-        
+        const isWeekend = settings?.hari_kerja ? !settings.hari_kerja.includes(dayName) : false;
+        const isManualHoliday = settings?.hari_libur ? settings.hari_libur.includes(dateStr) : false;
+
         if (isWeekend || isManualHoliday) {
-            doc.setFillColor(255, 230, 230); // Latar merah sel data (lebih soft tapi tetap terlihat)
-            doc.rect(x, currentY, colDayW, rowH, 'F');
+          doc.setFillColor(255, 235, 235);
+          doc.rect(x, currentY, colDayW, rowH, 'F');
         }
       }
 
       doc.rect(x, currentY, colDayW, rowH);
-      
+
       if (d <= daysInMonth) {
         const record = row.attendance[d];
         if (record) {
           let mark = "";
+          // Logika baru: Jika masuk tapi tidak pulang, anggap terlambat (T)
           const isStillWorking = record.jam_masuk && !record.jam_pulang && record.status !== 'alpha' && record.status !== 'izin' && record.status !== 'dinas_luar';
-          
+
           if (record.status === 'alpha') mark = "A";
           else if (record.status === 'izin') mark = "S";
           else if (record.status === 'dinas_luar') mark = "DL";
           else if (isStillWorking || record.status === 'telat') mark = "T";
           else if (record.status === 'hadir') mark = "H";
-          
+
           if (mark === "H") doc.setTextColor(0, 150, 0);
           else if (mark === "A") doc.setTextColor(200, 0, 0);
-          else if (mark === "T") doc.setTextColor(255, 102, 0);
+          else if (mark === "T") doc.setTextColor(255, 102, 0); // Orange for T
           else doc.setTextColor(0, 0, 0);
-          
+
           doc.text(mark, x + colDayW / 2, currentY + 4.5, { align: "center" });
           doc.setTextColor(0, 0, 0);
         }
@@ -191,17 +186,17 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
 
     const statWTotal = 25 / 5;
     [row.stats.h, row.stats.t, row.stats.s, row.stats.tk, row.stats.dl].forEach(statVal => {
-        doc.rect(x, currentY, statWTotal, rowH);
-        doc.text(statVal.toString(), x + statWTotal / 2, currentY + 4.5, { align: "center" });
-        x += statWTotal;
+      doc.rect(x, currentY, statWTotal, rowH);
+      doc.text(statVal.toString(), x + statWTotal / 2, currentY + 4.5, { align: "center" });
+      x += statWTotal;
     });
-    
+
     currentY += rowH;
   });
 
   const lastDay = lastDayOfMonth(dateObj);
   const footerDate = format(lastDay, "d MMMM yyyy", { locale: localeID });
-  
+
   if (currentY > pageHeight - 50) {
     doc.addPage();
     addLandscapeKop();
@@ -211,12 +206,12 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
   currentY += 15;
   const sigX = pageWidth - margin - 60;
   doc.setFontSize(9);
-  doc.text(`Cinangsi, ${footerDate}`, sigX, currentY);
+  doc.text(`Gintungreja, ${footerDate}`, sigX, currentY);
   doc.setFont("helvetica", "bold");
-  doc.text("Kepala Desa Cinangsi,", sigX, currentY + 5);
+  doc.text("Kepala Desa Gintungreja,", sigX, currentY + 5);
   currentY += 22;
-  doc.text("DANIS HUSAENI DAHLAN", sigX, currentY);
-  const nW = doc.getTextWidth("DANIS HUSAENI DAHLAN");
+  doc.text("SUYANTO", sigX, currentY);
+  const nW = doc.getTextWidth("SUYANTO");
   doc.line(sigX, currentY + 1, sigX + nW, currentY + 1);
 
   return doc.output("blob");

@@ -140,20 +140,56 @@ function handleCreateEventAndUpload(data) {
     }
   }
 
-  const eventResource = {
-    summary: eventData.title,
-    location: eventData.location,
-    description: (eventData.description || '') + (fileUrl ? `\n\n🔗 Link Undangan: ${fileUrl}` : ''),
-    start: { dateTime: eventData.start, timeZone: 'Asia/Jakarta' },
-    end: { dateTime: eventData.end, timeZone: 'Asia/Jakarta' }
-  };
-  
+  const startTime = new Date(eventData.start);
+  const endTime = new Date(eventData.end);
+  const fullDesc = (eventData.description || '') + (fileUrl ? `\n\n🔗 Link Undangan: ${fileUrl}` : '');
+
+  // 1. Coba gunakan CalendarApp bawaan (Tidak butuh aktivasi Advanced Google Service)
   try {
-    const createdEvent = Calendar.Events.insert(eventResource, eventData.calendarId || "primary");
-    return { eventUrl: createdEvent.htmlLink, fileUrl: fileUrl };
-  } catch (e) {
-    throw new Error("Gagal akses Kalender (Pastikan API Calendar aktif): " + e.message);
+    let cal = null;
+    const targetCalId = eventData.calendarId;
+    if (targetCalId && targetCalId !== "primary" && targetCalId.includes("@")) {
+      try {
+        cal = CalendarApp.getCalendarById(targetCalId);
+      } catch (err) {}
+    }
+    if (!cal) {
+      cal = CalendarApp.getDefaultCalendar();
+    }
+
+    if (cal) {
+      const createdEvent = cal.createEvent(eventData.title, startTime, endTime, {
+        description: fullDesc,
+        location: eventData.location || ''
+      });
+      return { 
+        eventUrl: "https://calendar.google.com/calendar/r", 
+        eventId: createdEvent.getId(),
+        fileUrl: fileUrl 
+      };
+    }
+  } catch (calAppErr) {
+    console.warn("CalendarApp warning, mencoba Advanced Calendar:", calAppErr);
   }
+
+  // 2. Fallback ke Advanced Service Calendar jika aktif
+  if (typeof Calendar !== 'undefined' && Calendar.Events) {
+    const eventResource = {
+      summary: eventData.title,
+      location: eventData.location,
+      description: fullDesc,
+      start: { dateTime: eventData.start, timeZone: 'Asia/Jakarta' },
+      end: { dateTime: eventData.end, timeZone: 'Asia/Jakarta' }
+    };
+    try {
+      const createdEvent = Calendar.Events.insert(eventResource, eventData.calendarId || "primary");
+      return { eventUrl: createdEvent.htmlLink, fileUrl: fileUrl };
+    } catch (e) {
+      throw new Error("Gagal akses Kalender: " + e.message);
+    }
+  }
+
+  throw new Error("Gagal akses Kalender: Kalender tidak dapat diakses atau izin belum diberikan.");
 }
 
 function handleGenerateNumber(data) {
@@ -179,18 +215,48 @@ function handleGetCalendar(data) {
     const targetDate = new Date(date);
     if (isNaN(targetDate.getTime())) throw new Error("Format tanggal tidak valid.");
     
-    const timeMin = targetDate.toISOString();
-    const timeMax = new Date(targetDate.getTime() + 24 * 60 * 60 * 1000).toISOString();
+    const startTime = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0);
+    const endTime = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 1, 0, 0, 0);
     
-    const calId = (calendarId && calendarId.includes("@")) ? calendarId : "primary";
-    const response = Calendar.Events.list(calId, { 
-      timeMin: timeMin, 
-      timeMax: timeMax, 
-      singleEvents: true, 
-      orderBy: 'startTime' 
-    });
+    // 1. Gunakan CalendarApp bawaan (Aman dan tidak butuh Advanced Service)
+    let cal = null;
+    if (calendarId && calendarId !== "primary" && calendarId.includes("@")) {
+      try {
+        cal = CalendarApp.getCalendarById(calendarId);
+      } catch (e) {}
+    }
+    if (!cal) {
+      cal = CalendarApp.getDefaultCalendar();
+    }
     
-    return { items: response.items || [] };
+    if (cal) {
+      const events = cal.getEvents(startTime, endTime);
+      const items = events.map(function(ev) {
+        return {
+          id: ev.getId(),
+          summary: ev.getTitle(),
+          description: ev.getDescription() || "",
+          location: ev.getLocation() || "",
+          start: { dateTime: ev.getStartTime().toISOString() },
+          end: { dateTime: ev.getEndTime().toISOString() }
+        };
+      });
+      return { items: items };
+    }
+
+    // 2. Fallback jika Advanced Service Calendar aktif
+    if (typeof Calendar !== 'undefined' && Calendar.Events) {
+      const calId = (calendarId && calendarId.includes("@")) ? calendarId : "primary";
+      const response = Calendar.Events.list(calId, { 
+        timeMin: startTime.toISOString(), 
+        timeMax: endTime.toISOString(), 
+        singleEvents: true, 
+        orderBy: 'startTime' 
+      });
+      return { items: response.items || [] };
+    }
+    
+    return { items: [] };
   } catch (err) {
     throw new Error("Gagal mengambil agenda: " + err.message);
   }
@@ -198,13 +264,48 @@ function handleGetCalendar(data) {
 
 function handleUpdateDescription(data) {
   const { calendarId, eventId, newContent } = data;
-  const calId = (calendarId && calendarId.includes("@")) ? calendarId : "primary";
-  const event = Calendar.Events.get(calId, eventId);
   const separator = "\n\n--- NOTULENSI ---";
-  let description = (event.description || "").split(separator)[0];
-  const finalDescription = description.trim() + separator + "\n" + newContent.trim();
-  Calendar.Events.patch({ description: finalDescription }, calId, eventId);
-  return { message: "Notulensi disimpan." };
+
+  // 1. Coba dengan CalendarApp bawaan
+  let cal = null;
+  if (calendarId && calendarId !== "primary" && calendarId.includes("@")) {
+    try {
+      cal = CalendarApp.getCalendarById(calendarId);
+    } catch (e) {}
+  }
+  if (!cal) {
+    cal = CalendarApp.getDefaultCalendar();
+  }
+
+  if (cal) {
+    try {
+      const ev = cal.getEventById(eventId);
+      if (ev) {
+        let description = (ev.getDescription() || "").split(separator)[0];
+        const finalDescription = description.trim() + separator + "\n" + newContent.trim();
+        ev.setDescription(finalDescription);
+        return { message: "Notulensi disimpan." };
+      }
+    } catch (err) {
+      console.warn("CalendarApp update error:", err);
+    }
+  }
+
+  // 2. Fallback ke Advanced Calendar
+  if (typeof Calendar !== 'undefined' && Calendar.Events) {
+    try {
+      const calId = (calendarId && calendarId.includes("@")) ? calendarId : "primary";
+      const event = Calendar.Events.get(calId, eventId);
+      let description = (event.description || "").split(separator)[0];
+      const finalDescription = description.trim() + separator + "\n" + newContent.trim();
+      Calendar.Events.patch({ description: finalDescription }, calId, eventId);
+      return { message: "Notulensi disimpan." };
+    } catch (e) {
+      throw new Error("Gagal update event: " + e.message);
+    }
+  }
+
+  return { message: "Event tidak ditemukan." };
 }
 
 function handleArchiveUpload(data) {
@@ -226,11 +327,15 @@ function forceGrantAllPermissions() {
   const root = DriveApp.getRootFolder();
   Logger.log("Akses Drive OK: " + root.getName());
   const cal = CalendarApp.getDefaultCalendar();
-  Logger.log("Akses Kalender OK: " + cal.getName());
-  try {
-    Calendar.Events.list("primary", {maxResults: 1});
-    Logger.log("API Advanced Calendar OK");
-  } catch (e) {
-    Logger.log("API Advanced Calendar ERROR: " + e.message);
+  Logger.log("Akses Kalender OK: " + (cal ? cal.getName() : "None"));
+  if (typeof Calendar !== 'undefined' && Calendar.Events) {
+    try {
+      Calendar.Events.list("primary", {maxResults: 1});
+      Logger.log("API Advanced Calendar OK");
+    } catch (e) {
+      Logger.log("API Advanced Calendar ERROR: " + e.message);
+    }
+  } else {
+    Logger.log("Menggunakan CalendarApp bawaan (Aman, tidak memerlukan Advanced Service).");
   }
 }

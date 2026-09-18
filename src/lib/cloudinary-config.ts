@@ -1,12 +1,17 @@
 /**
  * @fileOverview Konfigurasi Cloudinary Desa Digital.
+ * Tersinkronisasi dengan variabel environment (.env).
  */
 
+const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME || "mxgoux9z";
+const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "webdesa";
+const apiKey = process.env.NEXT_PUBLIC_CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY || "768774742966241";
+
 export const CLOUDINARY_CONFIG = {
-  cloudName: "dhltjjda0",
-  uploadPreset: "desa_digital_preset", 
-  apiKey: "957954734583989",
-  baseUrl: "https://api.cloudinary.com/v1_1/dhltjjda0/image/upload"
+  cloudName,
+  uploadPreset,
+  apiKey,
+  baseUrl: `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`
 };
 
 /**

@@ -1,4 +1,4 @@
-# Sistem Manajemen Desa Cinangsi
+# Sistem Manajemen Desa Gintungreja
 
 Sistem ini dirancang untuk memudahkan administrasi desa, mulai dari pelaporan kegiatan hingga pengajuan SPPD, lengkap dengan integrasi Google Drive dan AI.
 

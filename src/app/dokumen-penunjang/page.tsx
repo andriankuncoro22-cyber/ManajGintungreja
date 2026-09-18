@@ -1,16 +1,17 @@
 "use client"
 
+// Updated with Honor Kegiatan module
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { 
-  Printer, 
-  ArrowLeft, 
-  Users, 
-  UserCheck, 
-  Wallet, 
+import {
+  Printer,
+  ArrowLeft,
+  Users,
+  UserCheck,
+  Wallet,
   Briefcase,
   Calendar,
   Loader2,
@@ -25,7 +26,13 @@ import {
   ShieldCheck,
   Info,
   Stethoscope,
-  Baby
+  Baby,
+  Award,
+  ReceiptText,
+  Plus,
+  Trash2,
+  Store,
+  ShoppingBag
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Link from "next/link"
@@ -38,6 +45,7 @@ import { useUser, useDoc, useFirestore, useMemoFirebase, useCollection } from "@
 import { collection, doc, query, where, orderBy } from "firebase/firestore"
 import { generateDaftarHadirPDF, generateUangSakuPDF, generateDaftarHadirPesertaPDF } from "@/lib/pdf-utils-v2"
 import { generateHonorNarasumberPDF, generateInsentifPDF, generateSiltapPDF } from "@/lib/pdf-utils"
+import { generateNotaDanFakturPDF, generateStrukBelanjaPDF, type TransactionItem } from "@/lib/pdf-transaction-docs"
 
 // Define robust types for build safety
 interface Participant {
@@ -86,6 +94,13 @@ const configs = {
     color: "text-amber-600",
     bgColor: "bg-amber-50"
   },
+  "honor-kegiatan": {
+    title: "Honor Kegiatan",
+    desc: "Cetak tanda terima honorarium kepanitiaan & petugas kegiatan desa.",
+    icon: Award,
+    color: "text-indigo-600",
+    bgColor: "bg-indigo-50"
+  },
   "insentif": {
     title: "Insentif Lembaga",
     desc: "Cetak tanda terima insentif RT/RW, Kader, dll.",
@@ -99,6 +114,13 @@ const configs = {
     icon: Banknote,
     color: "text-emerald-600",
     bgColor: "bg-emerald-50"
+  },
+  "bukti-transaksi": {
+    title: "Cetak Bukti Transaksi",
+    desc: "Cetak Nota Pesanan, Faktur Pengiriman & Struk Belanja Kasir.",
+    icon: ReceiptText,
+    color: "text-orange-600",
+    bgColor: "bg-orange-50"
   }
 }
 
@@ -147,29 +169,29 @@ const getRtRwWeight = (jabatan: string) => {
 
 const getKaderWeight = (jabatan: string) => {
   const j = jabatan.toUpperCase();
-  const match = j.match(/(?:LESTARI|RAHAYU)\s*(\d+)/i) || j.match(/(\d+)/);
+  const match = j.match(/(?:PUSPA SEJATI|LESTARI|RAHAYU)\s*(\d+)/i) || j.match(/(\d+)/);
   return match ? parseInt(match[1]) : 999;
 };
 
 const sortParticipants = (list: any[]) => {
-    return list.sort((a, b) => {
-        const catA = a.category;
-        const catB = b.category;
-        
-        if (catA !== catB) {
-            return CATEGORY_ORDER.indexOf(catA) - CATEGORY_ORDER.indexOf(catB);
-        }
+  return list.sort((a, b) => {
+    const catA = a.category;
+    const catB = b.category;
 
-        if (catA === "Pemerintah Desa") {
-            return getRankWeight(a.jabatan) - getRankWeight(b.jabatan);
-        } else if (catA === "RT/RW") {
-            return getRtRwWeight(a.jabatan) - getRtRwWeight(b.jabatan);
-        } else if (catA === "Kader") {
-            return getKaderWeight(a.jabatan) - getKaderWeight(b.jabatan);
-        }
-        
-        return a.name.localeCompare(b.name);
-    });
+    if (catA !== catB) {
+      return CATEGORY_ORDER.indexOf(catA) - CATEGORY_ORDER.indexOf(catB);
+    }
+
+    if (catA === "Pemerintah Desa") {
+      return getRankWeight(a.jabatan) - getRankWeight(b.jabatan);
+    } else if (catA === "RT/RW") {
+      return getRtRwWeight(a.jabatan) - getRtRwWeight(b.jabatan);
+    } else if (catA === "Kader") {
+      return getKaderWeight(a.jabatan) - getKaderWeight(b.jabatan);
+    }
+
+    return a.name.localeCompare(b.name);
+  });
 };
 
 function DokumenContent() {
@@ -188,14 +210,14 @@ function DokumenContent() {
   // FETCH APBDes Data from Firestore (Unified Source)
   const apbRef = useMemoFirebase(() => {
     if (!db || !user) return null
-    return query(collection(db, "apbdes_records"), orderBy("kode", "asc"))
+    return query(collection(db, "apbdes"), orderBy("kode", "asc"))
   }, [db, user])
-  const { data: currentApbData, isLoading: isApbLoading } = useCollection<ApbItem>(apbRef)
+  const { data: currentApbData, isLoading: isApbLoading } = useCollection<any>(apbRef)
 
   // Mengambil data personil dari Firestore
   const personnelRef = useMemoFirebase(() => (db && user) ? collection(db, "personnel") : null, [db, user])
   const { data: dbOfficials } = useCollection(personnelRef)
-  
+
   // GLOBAL CONFIG: Ambil Logo dari Pengaturan Desa
   const villageSettingsRef = useMemoFirebase(() => {
     if (!db || !user) return null
@@ -204,15 +226,15 @@ function DokumenContent() {
   const { data: villageSettings } = useDoc(villageSettingsRef)
 
   const [useApbdes, setUseApbdes] = useState(true)
-  const [selectedYear, setSelectedYear] = useState("2026") // State baru untuk Tahun
+  const [selectedYear, setSelectedYear] = useState("2026")
   const [bidang, setBidang] = useState("")
   const [sumber, setSumber] = useState("")
   const [kegiatan, setKegiatan] = useState("")
   const [manualTitle, setManualTitle] = useState("")
   const [date, setDate] = useState("")
-  const [location, setLocation] = useState("Balai Desa Cinangsi")
+  const [location, setLocation] = useState("Balai Desa Gintungreja")
   const [time, setTime] = useState("09:00 WIB")
-  
+
   const [jumlahOrang, setJumlahOrang] = useState<number>(15)
   const [jumlahKuotaPeserta, setJumlahKuotaPeserta] = useState<number>(30)
   const [participantSelections, setParticipantSelections] = useState(Array(6).fill("none"));
@@ -224,6 +246,25 @@ function DokumenContent() {
   const [narsumData, setNarsumData] = useState(
     Array(4).fill(null).map(() => ({ name: "", position: "", nominal: "", tax: "0" }))
   )
+
+  // Honor Kegiatan States
+  const HONOR_KEGIATAN_CATEGORIES = [
+    "Honorarium Protokoler",
+    "Honorarium Kebersihan",
+    "Honorarium Petugas Registrasi",
+    "Honorarium Tim Pelaksana Kegiatan",
+    "Honorarium Operator",
+    "Input Manual"
+  ]
+
+  const [honorKegiatanCat, setHonorKegiatanCat] = useState("Honorarium Protokoler")
+  const [manualHonorCat, setManualHonorCat] = useState("")
+  const [numHonorKegiatan, setNumHonorKegiatan] = useState<number>(1)
+  const [honorKegiatanData, setHonorKegiatanData] = useState(
+    Array(20).fill(null).map(() => ({ name: "", position: "Protokoler / MC", nominal: "", tax: "0" }))
+  )
+  const [batchHonorNominal, setBatchHonorNominal] = useState("")
+  const [batchHonorTax, setBatchHonorTax] = useState("0")
 
   const [insentifCat, setInsentifCat] = useState("RT/RW")
   const [insentifMonth, setInsentifMonth] = useState("Januari")
@@ -239,7 +280,7 @@ function DokumenContent() {
   // Fetch actual health records data based on selection
   const healthDataQuery = useMemoFirebase(() => {
     if (!db || !user || type !== "daftar-hadir-posyandu" || posyanduSubType !== "peserta" || !selectedHealthCategory) return null;
-    
+
     const colRef = collection(db, "health_records");
     if (selectedLestari && selectedLestari !== "SEMUA POSYANDU") {
       return query(colRef, where("category", "==", selectedHealthCategory), where("posyandu", "==", selectedLestari));
@@ -248,12 +289,48 @@ function DokumenContent() {
   }, [db, user, type, posyanduSubType, selectedHealthCategory, selectedLestari]);
   const { data: healthRecords } = useCollection(healthDataQuery);
 
+  // Bukti Transaksi States
+  const [buktiTab, setBuktiTab] = useState<"nota-faktur" | "struk-belanja">("nota-faktur");
+
+  // Tab 1: Nota & Faktur Pengiriman
+  const [notaDate, setNotaDate] = useState("");
+  const [notaPerangkatNama, setNotaPerangkatNama] = useState("");
+  const [notaPerangkatJabatan, setNotaPerangkatJabatan] = useState("");
+  const [notaKepalaDesa, setNotaKepalaDesa] = useState("SARYOKO");
+  const [notaNamaToko, setNotaNamaToko] = useState("");
+  const [notaNamaPemilik, setNotaNamaPemilik] = useState("");
+  const [notaAlamatToko, setNotaAlamatToko] = useState("CINANGSI");
+  const [notaNoTelp, setNotaNoTelp] = useState("");
+  const [notaNoNota, setNotaNoNota] = useState("");
+  const [notaNoFaktur, setNotaNoFaktur] = useState("");
+  const [notaItems, setNotaItems] = useState<TransactionItem[]>([
+    { jenisBarang: "", banyaknya: 1, satuan: "buah", hargaSatuan: "", jumlah: "" },
+  ]);
+
+  // Tab 2: Struk Belanja
+  const [strukDate, setStrukDate] = useState("");
+  const [strukJam, setStrukJam] = useState("14");
+  const [strukMenit, setStrukMenit] = useState("30");
+  const [strukDetik, setStrukDetik] = useState("00");
+  const [strukNamaToko, setStrukNamaToko] = useState("");
+  const [strukAlamatToko, setStrukAlamatToko] = useState("Jl. Raya Pelita KM 5 Gintungreja");
+  const [strukNoTelp, setStrukNoTelp] = useState("");
+  const [strukKasir, setStrukKasir] = useState("KASIR 01");
+  const [strukNoRef, setStrukNoRef] = useState("");
+  const [strukBayarTunai, setStrukBayarTunai] = useState("");
+  const [strukItems, setStrukItems] = useState<TransactionItem[]>([
+    { jenisBarang: "", banyaknya: 1, satuan: "Pcs", hargaSatuan: "", jumlah: "" },
+  ]);
+
   useEffect(() => {
     setMounted(true)
-    setDate(new Date().toISOString().split('T')[0])
-    
-    // Auto switch to manual mode for posyandu
-    if (type === "daftar-hadir-posyandu") {
+    const today = new Date().toISOString().split('T')[0]
+    setDate(today)
+    setNotaDate(today)
+    setStrukDate(today)
+
+    // Auto switch to manual mode for posyandu & bukti-transaksi
+    if (type === "daftar-hadir-posyandu" || type === "bukti-transaksi") {
       setUseApbdes(false)
     }
   }, [type])
@@ -263,13 +340,23 @@ function DokumenContent() {
     const kaders = dbOfficials.filter(o => o.category === "Kader");
     const groups = new Set<string>();
     kaders.forEach(k => {
-      const match = k.jabatan?.match(/Lestari\s+\d+/i);
-      if (match) groups.add(match[0].toUpperCase());
-      else if (k.jabatan?.toUpperCase().includes("Lestari")) {
-          groups.add(k.jabatan.toUpperCase().trim());
-      }
+      const job = k.jabatan?.toUpperCase() || "";
+      // Cari pola "Puspa Sejati [Angka]" atau "Lestari [Angka]"
+      const matchSari = job.match(/SARI\s+RAHAYU\s*(\d+)?/i);
+      const matchLestari = job.match(/LESTARI\s*(\d+)?/i);
+
+      if (matchSari) groups.add(matchSari[0].trim());
+      else if (matchLestari) groups.add(matchLestari[0].trim());
+      else if (job.includes("PUSPA SEJATI")) groups.add("PUSPA SEJATI");
+      else if (job.includes("LESTARI")) groups.add("LESTARI");
     });
-    const result = Array.from(groups).sort();
+
+    const result = Array.from(groups).sort((a, b) => {
+      const numA = parseInt(a.match(/\d+/)?.[0] || "0");
+      const numB = parseInt(b.match(/\d+/)?.[0] || "0");
+      if (numA !== numB) return numA - numB;
+      return a.localeCompare(b);
+    });
     return ["SEMUA POSYANDU", ...result];
   }, [dbOfficials]);
 
@@ -279,23 +366,23 @@ function DokumenContent() {
     setParticipantSelections(newSelections);
   };
 
-  const participantCategories = useMemo(() => 
+  const participantCategories = useMemo(() =>
     Array.from(new Set((dbOfficials || []).map(o => o.category).filter(c => c && c.trim() !== '')))
-  , [dbOfficials]);
+    , [dbOfficials]);
 
   const filteredSources = useMemo(() => {
     if (!bidang || !currentApbData) return []
     const sources = currentApbData
-      .filter(item => String(item.bidang) === String(bidang) && item.tahun === selectedYear)
-      .map(item => String(item.sumber || "").trim())
+      .filter((item: any) => String(item.bidang) === String(bidang) && item.tahun === selectedYear)
+      .map((item: any) => String(item.sumber || "").trim())
       .filter(s => s !== "");
     return Array.from(new Set(sources))
   }, [bidang, selectedYear, currentApbData])
 
   const filteredActivities = useMemo(() => {
     if (!bidang || !sumber || !currentApbData) return []
-    return currentApbData.filter(item => 
-      String(item.bidang) === String(bidang) && 
+    return currentApbData.filter((item: any) =>
+      String(item.bidang) === String(bidang) &&
       item.tahun === selectedYear &&
       String(item.sumber || "").trim() === String(sumber).trim()
     )
@@ -305,7 +392,7 @@ function DokumenContent() {
     setIsGenerating(true)
     try {
       const finalTitle = (type === "daftar-hadir-posyandu" || !useApbdes) ? manualTitle : kegiatan;
-      
+
       let pdfBlob;
 
       if (type === "daftar-hadir" || type === "uang-saku") {
@@ -313,79 +400,79 @@ function DokumenContent() {
         const quota = jumlahOrang || 1;
         const selectedCats = participantSelections.filter(cat => cat && cat !== "none");
         let allParticipants: any[] = [];
-        
+
         selectedCats.forEach(cat => {
-            const members = (dbOfficials || []).filter(o => o.category === cat).map(o => ({
-                name: String(o.name || ""),
-                jabatan: String(o.jabatan || ""),
-                category: String(o.category || "")
-            }));
-            allParticipants.push(...members);
+          const members = (dbOfficials || []).filter(o => o.category === cat).map(o => ({
+            name: String(o.name || ""),
+            jabatan: String(o.jabatan || ""),
+            category: String(o.category || "")
+          }));
+          allParticipants.push(...members);
         });
 
         const sorted = sortParticipants(allParticipants);
         const uniqueParticipants = Array.from(new Map(sorted.map(item => [item.name, item])).values());
-        const finalParticipants = Array.from({ length: quota }, (_, i) => 
-            uniqueParticipants[i] || { name: "", jabatan: "", category: "" }
+        const finalParticipants = Array.from({ length: quota }, (_, i) =>
+          uniqueParticipants[i] || { name: "", jabatan: "", category: "" }
         );
 
-        const pdfData = { 
-            kegiatan: finalTitle, 
-            tanggal: date, 
-            participants: finalParticipants, 
-            nominal: uangSakuNominal, 
-            tax: uangSakuTax,
-            location,
-            time
+        const pdfData = {
+          kegiatan: finalTitle,
+          tanggal: date,
+          participants: finalParticipants,
+          nominal: uangSakuNominal,
+          tax: uangSakuTax,
+          location,
+          time
         };
-        
+
         if (type === "daftar-hadir") {
           pdfBlob = await generateDaftarHadirPDF(pdfData, villageSettings?.logoBase64);
         } else {
           pdfBlob = await generateUangSakuPDF(pdfData, villageSettings?.logoBase64);
         }
-      } 
+      }
       else if (type === "daftar-hadir-posyandu") {
         if (!finalTitle) throw new Error("Judul kegiatan harus diisi")
         if (!selectedLestari) throw new Error("Pilih Kelompok Posyandu")
-        
+
         const isAll = selectedLestari === "SEMUA POSYANDU";
         const displayLestari = isAll ? "LESTARI" : selectedLestari;
-        const reportTitle = isAll ? "DAFTAR HADIR POSYANDU LESTARI" : `DAFTAR HADIR POSYANDU ${displayLestari}`;
+        const reportTitle = isAll ? "DAFTAR HADIR POSYANDU" : `DAFTAR HADIR POSYANDU ${displayLestari}`;
 
         if (posyanduSubType === "kader") {
-            const kaders = (dbOfficials || []).filter(o => o.category === "Kader" && (isAll || o.jabatan?.toUpperCase().includes(selectedLestari)));
-            const quota = Math.max(kaders.length, 10); 
-            const sortedKaders = sortParticipants(kaders);
-            const finalParticipants = Array.from({ length: quota }, (_, i) => 
-                sortedKaders[i] ? { name: sortedKaders[i].name, jabatan: sortedKaders[i].jabatan, category: "Kader" } : { name: "", jabatan: "", category: "" }
-            );
-            const pdfData = { 
-                kegiatan: finalTitle, 
-                tanggal: date, 
-                participants: finalParticipants,
-                mainTitle: reportTitle,
-                location,
-                time
-            };
-            pdfBlob = await generateDaftarHadirPDF(pdfData, villageSettings?.logoBase64);
+          const kaders = (dbOfficials || []).filter(o => o.category === "Kader" && (isAll || o.jabatan?.toUpperCase().includes(selectedLestari)));
+          const quota = Math.max(kaders.length, 10);
+          const sortedKaders = sortParticipants(kaders);
+          const finalParticipants = Array.from({ length: quota }, (_, i) =>
+            sortedKaders[i] ? { name: sortedKaders[i].name, jabatan: sortedKaders[i].jabatan, category: "Kader" } : { name: "", jabatan: "", category: "" }
+          );
+          const pdfData = {
+            kegiatan: finalTitle,
+            tanggal: date,
+            participants: finalParticipants,
+            mainTitle: reportTitle,
+            location,
+            time
+          };
+          pdfBlob = await generateDaftarHadirPDF(pdfData, villageSettings?.logoBase64);
         } else {
-            const mappedParticipants = (healthRecords || []).map(r => ({
-                name: r.name,
-                jabatan: r.address, 
-                category: r.category
-            }));
-            mappedParticipants.sort((a, b) => a.name.localeCompare(b.name));
-            const pdfData = {
-                kegiatan: finalTitle,
-                tanggal: date,
-                participants: mappedParticipants,
-                quota: Math.max(mappedParticipants.length, jumlahKuotaPeserta),
-                mainTitle: isAll ? `DAFTAR HADIR ${selectedHealthCategory.toUpperCase()} POSYANDU LESTARI` : `DAFTAR HADIR ${selectedHealthCategory.toUpperCase()} POSYANDU ${displayLestari}`,
-                location,
-                time
-            };
-            pdfBlob = await generateDaftarHadirPesertaPDF(pdfData, villageSettings?.logoBase64);
+          const mappedParticipants = (healthRecords || []).map(r => ({
+            name: r.name,
+            jabatan: r.address,
+            category: r.category
+          }));
+          mappedParticipants.sort((a, b) => a.name.localeCompare(b.name));
+          const pdfData = {
+            kegiatan: finalTitle,
+            tanggal: date,
+            participants: mappedParticipants,
+            quota: Math.max(mappedParticipants.length, jumlahKuotaPeserta),
+            mainTitle: isAll ? `DAFTAR HADIR ${selectedHealthCategory.toUpperCase()} POSYANDU` : `DAFTAR HADIR ${selectedHealthCategory.toUpperCase()} POSYANDU ${displayLestari}`,
+            location,
+            time
+          };
+          pdfBlob = await generateDaftarHadirPesertaPDF(pdfData, villageSettings?.logoBase64);
         }
       }
       else if (type === "honor-narasumber") {
@@ -393,35 +480,96 @@ function DokumenContent() {
         const activeNarsum = narsumData.slice(0, numNarsum)
         pdfBlob = await generateHonorNarasumberPDF({ title: finalTitle, date, location, time, narsum: activeNarsum }, villageSettings?.logoBase64)
       }
+      else if (type === "honor-kegiatan") {
+        if (!finalTitle) throw new Error("Nama kegiatan harus diisi")
+        const activeHonor = honorKegiatanData.slice(0, numHonorKegiatan)
+        let categoryTitle = honorKegiatanCat === "Input Manual"
+          ? (manualHonorCat.trim() || "HONORARIUM KEGIATAN")
+          : honorKegiatanCat
+
+        let formattedHeading = categoryTitle.toUpperCase()
+        if (!formattedHeading.startsWith("TANDA TERIMA")) {
+          formattedHeading = `TANDA TERIMA ${formattedHeading}`
+        }
+
+        pdfBlob = await generateHonorNarasumberPDF({
+          docTitle: formattedHeading,
+          title: finalTitle,
+          date,
+          location,
+          time,
+          narsum: activeHonor
+        }, villageSettings?.logoBase64)
+      }
+      else if (type === "bukti-transaksi") {
+        if (buktiTab === "nota-faktur") {
+          if (!notaNamaToko.trim()) throw new Error("Nama toko / penyedia barang harus diisi")
+          if (!notaPerangkatNama.trim()) throw new Error("Pilih perangkat / pelaksana yang membidangi")
+          const valid = notaItems.filter(it => it.jenisBarang && it.jenisBarang.trim() !== "")
+          if (valid.length === 0) throw new Error("Tambahkan minimal 1 barang pada nota")
+
+          pdfBlob = await generateNotaDanFakturPDF({
+            tanggal: notaDate,
+            namaToko: notaNamaToko,
+            namaPemilik: notaNamaPemilik,
+            alamatToko: notaAlamatToko,
+            noTeleponToko: notaNoTelp,
+            perangkatNama: notaPerangkatNama,
+            perangkatJabatan: notaPerangkatJabatan,
+            kepalaDesaNama: notaKepalaDesa || "SARYOKO",
+            noNota: notaNoNota,
+            noFaktur: notaNoFaktur,
+            items: notaItems
+          }, villageSettings?.logoBase64)
+        } else {
+          if (!strukNamaToko.trim()) throw new Error("Nama toko / merchant harus diisi")
+          const valid = strukItems.filter(it => it.jenisBarang && it.jenisBarang.trim() !== "")
+          if (valid.length === 0) throw new Error("Tambahkan minimal 1 barang belanjaan pada struk")
+
+          pdfBlob = await generateStrukBelanjaPDF({
+            tanggal: strukDate,
+            jam: strukJam,
+            menit: strukMenit,
+            detik: strukDetik,
+            namaToko: strukNamaToko,
+            alamatToko: strukAlamatToko,
+            noTelepon: strukNoTelp,
+            namaKasir: strukKasir,
+            noStruk: strukNoRef,
+            bayarTunai: strukBayarTunai,
+            items: strukItems
+          })
+        }
+      }
       else if (type === "insentif") {
         let insentifParticipants: { name: string; position: string; category: string }[] = []
         const categoryMap = {
-            "RT/RW": "RT/RW",
-            "KADER POSYANDU": "Kader",
-            "GURU PAUD": "Guru TK & Paud",
-            "KADER KPM": "KPM",
-            "HONORARIUM LINMAS": "Linmas"
+          "RT/RW": "RT/RW",
+          "KADER POSYANDU": "Kader",
+          "GURU PAUD": "Guru TK & Paud",
+          "KADER KPM": "KPM",
+          "HONORARIUM LINMAS": "Linmas"
         };
         const selectedCategory = (categoryMap as any)[insentifCat];
-        if(selectedCategory) {
-            const rawMembers = (dbOfficials || []).filter(o => o.category === selectedCategory).map(o => ({ 
-              name: String(o.name || ""), 
-              position: String(o.jabatan || ""),
-              category: String(o.category || ""),
-              jabatan: String(o.jabatan || "") 
-            }));
-            const sorted = sortParticipants(rawMembers);
-            insentifParticipants = sorted.map(s => ({ name: s.name, position: s.position, category: s.category }));
+        if (selectedCategory) {
+          const rawMembers = (dbOfficials || []).filter(o => o.category === selectedCategory).map(o => ({
+            name: String(o.name || ""),
+            position: String(o.jabatan || ""),
+            category: String(o.category || ""),
+            jabatan: String(o.jabatan || "")
+          }));
+          const sorted = sortParticipants(rawMembers);
+          insentifParticipants = sorted.map(s => ({ name: s.name, position: s.position, category: s.category }));
         }
 
-        pdfBlob = await generateInsentifPDF({ 
-          category: insentifCat, 
-          month: insentifMonth, 
-          date: date, 
-          nominal: insentifNominal, 
-          tax: insentifTax, 
-          participants: insentifParticipants, 
-          jumlahOrang: insentifParticipants.length 
+        pdfBlob = await generateInsentifPDF({
+          category: insentifCat,
+          month: insentifMonth,
+          date: date,
+          nominal: insentifNominal,
+          tax: insentifTax,
+          participants: insentifParticipants,
+          jumlahOrang: insentifParticipants.length
         }, villageSettings?.logoBase64)
       }
       else if (type === "siltap") {
@@ -459,11 +607,11 @@ function DokumenContent() {
             });
           dataToPrint.sort((a, b) => b.nominal - a.nominal || a.name.localeCompare(b.name));
         }
-        pdfBlob = await generateSiltapPDF({ 
-            month: insentifMonth, 
-            date, 
-            title: siltapSubType === "perangkat" ? "TANDA TERIMA SILTAP" : "TANDA TERIMA INSENTIF BPD", 
-            data: dataToPrint 
+        pdfBlob = await generateSiltapPDF({
+          month: insentifMonth,
+          date,
+          title: siltapSubType === "perangkat" ? "TANDA TERIMA SILTAP" : "TANDA TERIMA INSENTIF BPD",
+          data: dataToPrint
         }, villageSettings?.logoBase64)
       }
 
@@ -487,6 +635,116 @@ function DokumenContent() {
     setNarsumData(newData)
   }
 
+  const getDefaultJob = (cat: string) => {
+    switch (cat) {
+      case "Honorarium Protokoler": return "Protokoler / MC";
+      case "Honorarium Kebersihan": return "Petugas Kebersihan";
+      case "Honorarium Petugas Registrasi": return "Petugas Registrasi";
+      case "Honorarium Tim Pelaksana Kegiatan": return "Tim Pelaksana Kegiatan";
+      case "Honorarium Operator": return "Operator / IT";
+      default: return "Petugas Kegiatan";
+    }
+  }
+
+  const handleSelectHonorCat = (cat: string) => {
+    setHonorKegiatanCat(cat)
+    const defaultPos = getDefaultJob(cat)
+    setHonorKegiatanData(prev => prev.map(item => ({
+      ...item,
+      position: item.position === "" || [
+        "Protokoler / MC",
+        "Petugas Kebersihan",
+        "Petugas Registrasi",
+        "Tim Pelaksana Kegiatan",
+        "Operator / IT",
+        "Petugas Kegiatan"
+      ].includes(item.position) ? defaultPos : item.position
+    })))
+  }
+
+  const updateHonorKegiatanData = (index: number, field: string, value: string) => {
+    const newData = [...honorKegiatanData]
+    newData[index] = { ...newData[index], [field]: value }
+    setHonorKegiatanData(newData)
+  }
+
+  const applyBatchHonor = () => {
+    if (!batchHonorNominal) {
+      toast({ variant: "destructive", title: "Nominal Kosong", description: "Masukkan nominal honor terlebih dahulu." })
+      return
+    }
+    setHonorKegiatanData(prev => prev.map(item => ({
+      ...item,
+      nominal: batchHonorNominal,
+      tax: batchHonorTax
+    })))
+    toast({ title: "Berhasil", description: `Nominal Rp ${parseInt(batchHonorNominal || "0").toLocaleString('id-ID')} & Pajak ${batchHonorTax}% diterapkan ke semua penerima.` })
+  }
+
+  const handleNotaItemChange = (index: number, field: keyof TransactionItem, value: any) => {
+    setNotaItems((prev) => {
+      const updated = [...prev];
+      const current = { ...updated[index], [field]: value };
+      if (field === "banyaknya" || field === "hargaSatuan") {
+        const qty = parseFloat(String(field === "banyaknya" ? value : current.banyaknya)) || 0;
+        const price = parseFloat(String(field === "hargaSatuan" ? value : current.hargaSatuan).replace(/\D/g, "")) || 0;
+        current.jumlah = qty * price;
+      }
+      updated[index] = current;
+      return updated;
+    });
+  };
+
+  const addNotaItem = () => {
+    setNotaItems((prev) => [
+      ...prev,
+      { jenisBarang: "", banyaknya: 1, satuan: "Pcs", hargaSatuan: "", jumlah: "" },
+    ]);
+  };
+
+  const removeNotaItem = (index: number) => {
+    setNotaItems((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const handleStrukItemChange = (index: number, field: keyof TransactionItem, value: any) => {
+    setStrukItems((prev) => {
+      const updated = [...prev];
+      const current = { ...updated[index], [field]: value };
+      if (field === "banyaknya" || field === "hargaSatuan") {
+        const qty = parseFloat(String(field === "banyaknya" ? value : current.banyaknya)) || 0;
+        const price = parseFloat(String(field === "hargaSatuan" ? value : current.hargaSatuan).replace(/\D/g, "")) || 0;
+        current.jumlah = qty * price;
+      }
+      updated[index] = current;
+      return updated;
+    });
+  };
+
+  const addStrukItem = () => {
+    setStrukItems((prev) => [
+      ...prev,
+      { jenisBarang: "", banyaknya: 1, satuan: "Pcs", hargaSatuan: "", jumlah: "" },
+    ]);
+  };
+
+  const removeStrukItem = (index: number) => {
+    setStrukItems((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const setCurrentTimeForStruk = () => {
+    const now = new Date();
+    setStrukJam(String(now.getHours()).padStart(2, "0"));
+    setStrukMenit(String(now.getMinutes()).padStart(2, "0"));
+    setStrukDetik(String(now.getSeconds()).padStart(2, "0"));
+    toast({ title: "Waktu Disetel", description: "Jam, menit, detik telah diisi dengan waktu saat ini." });
+  };
+
   if (!mounted) return null
 
   if (!current) {
@@ -496,24 +754,25 @@ function DokumenContent() {
           <h1 className="text-3xl md:text-4xl font-black text-primary uppercase tracking-tight">Pusat Dokumen</h1>
           <p className="text-muted-foreground font-medium">Pilih jenis berkas administrasi yang ingin Anda cetak.</p>
         </header>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6 mt-4">
           {Object.entries(configs).map(([key, item]) => (
             <Link key={key} href={`/dokumen-penunjang/?type=${key}`}>
-              <Card className="border shadow-sm hover:shadow-xl hover:border-primary/50 transition-all cursor-pointer group active:scale-95 h-full flex flex-col">
-                <CardHeader className={cn("p-6 rounded-t-xl", item.bgColor)}>
-                  <item.icon className={cn("h-12 w-12 mb-2 transition-transform group-hover:scale-110", item.color)} />
-                  <CardTitle className="text-lg font-bold uppercase leading-tight">{item.title}</CardTitle>
+              <Card className="border border-slate-200/80 shadow-xs hover:shadow-lg hover:border-primary/50 transition-all cursor-pointer group active:scale-95 h-full flex flex-col rounded-xl md:rounded-2xl overflow-hidden bg-white">
+                <CardHeader className={cn("p-3.5 md:p-6 rounded-t-xl md:rounded-t-2xl flex flex-col items-center text-center sm:items-start sm:text-left", item.bgColor)}>
+                  <item.icon className={cn("h-8 w-8 md:h-12 md:w-12 mb-1.5 md:mb-2 transition-transform group-hover:scale-110 shrink-0", item.color)} />
+                  <CardTitle className="text-xs md:text-lg font-bold uppercase leading-snug line-clamp-2">{item.title}</CardTitle>
                 </CardHeader>
-                <CardContent className="p-6 flex-1 flex flex-col justify-between gap-4">
-                  <p className="text-xs text-muted-foreground font-medium">{item.desc}</p>
-                  <div className="flex items-center text-[10px] font-black uppercase text-primary tracking-widest group-hover:gap-2 transition-all">
-                    Pilih Berkas <ChevronRight className="h-3 w-3 ml-1" />
+                <CardContent className="p-3 md:p-6 flex-1 flex flex-col justify-between gap-2 md:gap-4">
+                  <p className="text-[9px] md:text-xs text-muted-foreground font-medium leading-relaxed line-clamp-2 hidden sm:block">{item.desc}</p>
+                  <div className="flex items-center justify-center sm:justify-start text-[8px] md:text-[10px] font-black uppercase text-primary tracking-wider group-hover:gap-2 transition-all pt-1 border-t border-slate-100 sm:border-0">
+                    <span>Pilih Berkas</span> <ChevronRight className="h-3 w-3 ml-0.5 shrink-0" />
                   </div>
                 </CardContent>
               </Card>
             </Link>
           ))}
         </div>
+
       </div>
     )
   }
@@ -545,21 +804,21 @@ function DokumenContent() {
           </div>
         </CardHeader>
         <CardContent className="p-8 space-y-8">
-          
+
           {type === "insentif" && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
               <div className="space-y-4">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">Pilih Kelompok Penerima</Label>
                 <div className="grid grid-cols-2 gap-4">
                   {["RT/RW", "KADER POSYANDU", "GURU PAUD", "KADER KPM", "HONORARIUM LINMAS"].map((cat) => (
-                    <Button 
+                    <Button
                       key={cat}
                       type="button"
                       onClick={() => setInsentifCat(cat)}
                       className={cn(
                         "h-14 rounded-2xl font-black text-[10px] uppercase transition-all border-2",
-                        insentifCat === cat 
-                          ? "bg-purple-600 border-purple-600 text-white shadow-lg shadow-purple-200" 
+                        insentifCat === cat
+                          ? "bg-purple-600 border-purple-600 text-white shadow-lg shadow-purple-200"
                           : "bg-white border-muted text-purple-900 hover:bg-purple-50 hover:border-purple-200"
                       )}
                     >
@@ -587,11 +846,11 @@ function DokumenContent() {
                   <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">Tgl Penyaluran</Label>
                   <div className="relative">
                     <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-purple-600/50" />
-                    <Input 
-                      type="date" 
+                    <Input
+                      type="date"
                       value={date}
                       onChange={(e) => setDate(e.target.value)}
-                      className="h-14 pl-12 rounded-2xl bg-muted/20 border-none font-bold text-base" 
+                      className="h-14 pl-12 rounded-2xl bg-muted/20 border-none font-bold text-base"
                     />
                   </div>
                 </div>
@@ -602,12 +861,12 @@ function DokumenContent() {
                   <Label className="text-[10px] font-black uppercase text-purple-900 tracking-widest ml-1">Nominal Insentif (RP)</Label>
                   <div className="relative">
                     <Coins className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-purple-600" />
-                    <Input 
+                    <Input
                       type="number"
-                      placeholder="0" 
+                      placeholder="0"
                       value={insentifNominal}
                       onChange={(e) => setInsentifNominal(e.target.value)}
-                      className="h-14 pl-12 rounded-2xl bg-white border-none font-black text-purple-900 text-lg shadow-sm" 
+                      className="h-14 pl-12 rounded-2xl bg-white border-none font-black text-purple-900 text-lg shadow-sm"
                     />
                   </div>
                 </div>
@@ -615,12 +874,12 @@ function DokumenContent() {
                   <Label className="text-[10px] font-black uppercase text-purple-900 tracking-widest ml-1">Pot Pajak (%)</Label>
                   <div className="relative">
                     <Percent className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-purple-600" />
-                    <Input 
+                    <Input
                       type="number"
-                      placeholder="0" 
+                      placeholder="0"
                       value={insentifTax}
                       onChange={(e) => setInsentifTax(e.target.value)}
-                      className="h-14 pl-12 rounded-2xl bg-white border-none font-black text-purple-900 text-lg shadow-sm" 
+                      className="h-14 pl-12 rounded-2xl bg-white border-none font-black text-purple-900 text-lg shadow-sm"
                     />
                   </div>
                 </div>
@@ -629,162 +888,700 @@ function DokumenContent() {
           )}
 
           {type === "siltap" && (
-             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
-                <div className="space-y-4">
-                    <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">Pilih Jenis Pembayaran</Label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Button 
-                            type="button"
-                            onClick={() => setSiltapSubType("perangkat")}
-                            className={cn(
-                                "h-16 rounded-2xl font-black text-xs uppercase gap-3 transition-all",
-                                siltapSubType === "perangkat" ? "bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200" : "bg-muted/30 text-muted-foreground hover:bg-emerald-50 hover:text-emerald-700 border-2 border-transparent"
-                            )}
-                        >
-                            <Users className="h-5 w-5" /> SILTAP PERANGKAT
-                        </Button>
-                        <Button 
-                            type="button"
-                            onClick={() => setSiltapSubType("bpd")}
-                            className={cn(
-                                "h-16 rounded-2xl font-black text-xs uppercase gap-3 transition-all",
-                                siltapSubType === "bpd" ? "bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200" : "bg-muted/30 text-muted-foreground hover:bg-emerald-50 hover:text-emerald-700 border-2 border-transparent"
-                            )}
-                        >
-                            <ShieldCheck className="h-5 w-5" /> INSENTIF BPD
-                        </Button>
-                    </div>
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+              <div className="space-y-4">
+                <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">Pilih Jenis Pembayaran</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Button
+                    type="button"
+                    onClick={() => setSiltapSubType("perangkat")}
+                    className={cn(
+                      "h-16 rounded-2xl font-black text-xs uppercase gap-3 transition-all",
+                      siltapSubType === "perangkat" ? "bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200" : "bg-muted/30 text-muted-foreground hover:bg-emerald-50 hover:text-emerald-700 border-2 border-transparent"
+                    )}
+                  >
+                    <Users className="h-5 w-5" /> SILTAP PERANGKAT
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => setSiltapSubType("bpd")}
+                    className={cn(
+                      "h-16 rounded-2xl font-black text-xs uppercase gap-3 transition-all",
+                      siltapSubType === "bpd" ? "bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200" : "bg-muted/30 text-muted-foreground hover:bg-emerald-50 hover:text-emerald-700 border-2 border-transparent"
+                    )}
+                  >
+                    <ShieldCheck className="h-5 w-5" /> INSENTIF BPD
+                  </Button>
                 </div>
+              </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">Pilih Bulan / Tunjangan</Label>
-                        <Select value={insentifMonth} onValueChange={setInsentifMonth}>
-                            <SelectTrigger className="h-14 rounded-2xl bg-muted/20 border-none px-5 text-base font-bold">
-                                <SelectValue placeholder="Pilih Bulan..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"].map(m => (
-                                    <SelectItem key={m} value={m} className="font-bold">{m}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">Tgl Cetak</Label>
-                        <div className="relative">
-                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                            <Input 
-                                type="date" 
-                                value={date}
-                                onChange={(e) => setDate(e.target.value)}
-                                className="h-14 pl-12 rounded-2xl bg-muted/20 border-none font-bold text-base" 
-                            />
-                        </div>
-                    </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">Pilih Bulan / Tunjangan</Label>
+                  <Select value={insentifMonth} onValueChange={setInsentifMonth}>
+                    <SelectTrigger className="h-14 rounded-2xl bg-muted/20 border-none px-5 text-base font-bold">
+                      <SelectValue placeholder="Pilih Bulan..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"].map(m => (
+                        <SelectItem key={m} value={m} className="font-bold">{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-             </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">Tgl Cetak</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    <Input
+                      type="date"
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      className="h-14 pl-12 rounded-2xl bg-muted/20 border-none font-bold text-base"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {type === "daftar-hadir-posyandu" && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
-                <Tabs value={posyanduSubType} onValueChange={(v: any) => setPosyanduSubType(v)} className="w-full">
-                    <TabsList className="grid grid-cols-2 w-full h-12 mb-6 bg-rose-50 p-1 rounded-xl">
-                        <TabsTrigger value="kader" className="gap-2 text-[10px] font-black uppercase rounded-lg data-[state=active]:bg-rose-600 data-[state=active]:text-white">
-                            <UserCheck className="h-4 w-4" />
-                            Daftar Kader
-                        </TabsTrigger>
-                        <TabsTrigger value="peserta" className="gap-2 text-[10px] font-black uppercase rounded-lg data-[state=active]:bg-rose-600 data-[state=active]:text-white">
-                            <Baby className="h-4 w-4" />
-                            Daftar Peserta Posyandu
-                        </TabsTrigger>
-                    </TabsList>
+              <Tabs value={posyanduSubType} onValueChange={(v: any) => setPosyanduSubType(v)} className="w-full">
+                <TabsList className="grid grid-cols-2 w-full h-12 mb-6 bg-rose-50 p-1 rounded-xl">
+                  <TabsTrigger value="kader" className="gap-2 text-[10px] font-black uppercase rounded-lg data-[state=active]:bg-rose-600 data-[state=active]:text-white">
+                    <UserCheck className="h-4 w-4" />
+                    Daftar Kader
+                  </TabsTrigger>
+                  <TabsTrigger value="peserta" className="gap-2 text-[10px] font-black uppercase rounded-lg data-[state=active]:bg-rose-600 data-[state=active]:text-white">
+                    <Baby className="h-4 w-4" />
+                    Daftar Peserta Posyandu
+                  </TabsTrigger>
+                </TabsList>
 
-                    <div className="space-y-6">
-                        <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Judul Kegiatan</Label>
-                            <Input 
-                                placeholder="Contoh: Posyandu Balita & Lansia" 
-                                value={manualTitle}
-                                onChange={(e) => setManualTitle(e.target.value)}
-                                className="h-14 rounded-2xl bg-rose-50/50 border-rose-100 font-bold" 
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Pilih Kelompok Posyandu</Label>
-                            <Select value={selectedLestari} onValueChange={setSelectedLestari}>
-                                <SelectTrigger className="h-14 rounded-2xl bg-rose-50 border-rose-100 font-black">
-                                    <SelectValue placeholder="Pilih Posyandu..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {LestariGroups.map(group => (
-                                        <SelectItem key={group} value={group} className="font-bold">{group}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Judul Kegiatan</Label>
+                    <Input
+                      placeholder="Contoh: Posyandu Balita & Lansia"
+                      value={manualTitle}
+                      onChange={(e) => setManualTitle(e.target.value)}
+                      className="h-14 rounded-2xl bg-rose-50/50 border-rose-100 font-bold"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Pilih Kelompok Posyandu</Label>
+                    <Select value={selectedLestari} onValueChange={setSelectedLestari}>
+                      <SelectTrigger className="h-14 rounded-2xl bg-rose-50 border-rose-100 font-black">
+                        <SelectValue placeholder="Pilih Posyandu..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LestariGroups.map(group => (
+                          <SelectItem key={group} value={group} className="font-bold">{group}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                        {posyanduSubType === "peserta" && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in slide-in-from-top-1">
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Pilih Jenis Peserta</Label>
-                                    <Select value={selectedHealthCategory} onValueChange={setSelectedHealthCategory}>
-                                        <SelectTrigger className="h-14 rounded-2xl bg-rose-50 border-rose-100 font-bold">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {HEALTH_CATEGORIES.map(cat => (
-                                                <SelectItem key={cat} value={cat} className="font-bold">{cat}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Minimal Baris (Jika Data Sedikit)</Label>
-                                    <div className="relative">
-                                        <Users className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-rose-600/50" />
-                                        <Input 
-                                            type="number"
-                                            value={jumlahKuotaPeserta}
-                                            onChange={(e) => setJumlahKuotaPeserta(parseInt(e.target.value) || 0)}
-                                            className="h-14 pl-12 rounded-2xl bg-rose-50/30 border-rose-100 font-black text-rose-900" 
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Tanggal</Label>
-                                <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-12 rounded-xl" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Waktu</Label>
-                                <Input value={time} onChange={e => setTime(e.target.value)} placeholder="09:00 WIB" className="h-12 rounded-xl" />
-                            </div>
+                  {posyanduSubType === "peserta" && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in slide-in-from-top-1">
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Pilih Jenis Peserta</Label>
+                        <Select value={selectedHealthCategory} onValueChange={setSelectedHealthCategory}>
+                          <SelectTrigger className="h-14 rounded-2xl bg-rose-50 border-rose-100 font-bold">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {HEALTH_CATEGORIES.map(cat => (
+                              <SelectItem key={cat} value={cat} className="font-bold">{cat}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Minimal Baris (Jika Data Sedikit)</Label>
+                        <div className="relative">
+                          <Users className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-rose-600/50" />
+                          <Input
+                            type="number"
+                            value={jumlahKuotaPeserta}
+                            onChange={(e) => setJumlahKuotaPeserta(parseInt(e.target.value) || 0)}
+                            className="h-14 pl-12 rounded-2xl bg-rose-50/30 border-rose-100 font-black text-rose-900"
+                          />
                         </div>
-                        <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Lokasi (Manual)</Label>
-                            <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="Contoh: Rumah Ibu RW 01" className="h-12 rounded-xl" />
-                        </div>
+                      </div>
                     </div>
-                </Tabs>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Tanggal</Label>
+                      <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-12 rounded-xl" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Waktu</Label>
+                      <Input value={time} onChange={e => setTime(e.target.value)} placeholder="09:00 WIB" className="h-12 rounded-xl" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">Lokasi (Manual)</Label>
+                    <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="Contoh: Rumah Ibu RW 01" className="h-12 rounded-xl" />
+                  </div>
+                </div>
+              </Tabs>
             </div>
           )}
 
-          {(type !== "siltap" && type !== "insentif" && type !== "daftar-hadir-posyandu") && (
+          {type === "bukti-transaksi" && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+              {/* TAB SELECTOR DENGAN SOLID ORANGE BUTTONS */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full p-1.5 rounded-2xl bg-orange-50/70 border border-orange-200">
+                <button
+                  type="button"
+                  onClick={() => setBuktiTab("nota-faktur")}
+                  className={cn(
+                    "flex items-center justify-center gap-2.5 h-13 py-3 px-4 rounded-xl text-xs font-black uppercase transition-all cursor-pointer",
+                    buktiTab === "nota-faktur"
+                      ? "bg-orange-500 text-white shadow-md shadow-orange-500/30 ring-2 ring-orange-500/20"
+                      : "bg-white text-slate-700 hover:bg-orange-100/60 hover:text-orange-950 border border-orange-200/80"
+                  )}
+                >
+                  <Store className={cn("h-4 w-4", buktiTab === "nota-faktur" ? "text-white" : "text-orange-600")} />
+                  1. Nota &amp; Faktur Pengiriman
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBuktiTab("struk-belanja")}
+                  className={cn(
+                    "flex items-center justify-center gap-2.5 h-13 py-3 px-4 rounded-xl text-xs font-black uppercase transition-all cursor-pointer",
+                    buktiTab === "struk-belanja"
+                      ? "bg-orange-500 text-white shadow-md shadow-orange-500/30 ring-2 ring-orange-500/20"
+                      : "bg-white text-slate-700 hover:bg-orange-100/60 hover:text-orange-950 border border-orange-200/80"
+                  )}
+                >
+                  <ReceiptText className={cn("h-4 w-4", buktiTab === "struk-belanja" ? "text-white" : "text-orange-600")} />
+                  2. Struk Belanja Kasir
+                </button>
+              </div>
+
+              {/* TAB 1: NOTA & FAKTUR PENGIRIMAN */}
+              {buktiTab === "nota-faktur" && (
+                <div className="space-y-6 animate-in slide-in-from-bottom-2">
+                  {/* Identitas Toko & Perangkat */}
+                  <div className="p-6 rounded-3xl bg-orange-50/40 border border-orange-200/80 space-y-5">
+                    <div className="flex items-center gap-2">
+                      <Store className="h-4 w-4 text-orange-600" />
+                      <h3 className="text-xs font-black uppercase text-orange-950 tracking-wider">
+                        Identitas Toko &amp; Penerima Barang
+                      </h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Tanggal Transaksi / Pesanan</Label>
+                        <div className="relative">
+                          <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-600" />
+                          <Input
+                            type="date"
+                            value={notaDate}
+                            onChange={(e) => setNotaDate(e.target.value)}
+                            className="h-12 pl-12 rounded-xl bg-white border-orange-200 font-bold"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Perangkat / Pemesan Barang</Label>
+                          {dbOfficials && dbOfficials.length > 0 && (
+                            <Select
+                              onValueChange={(val) => {
+                                const off = dbOfficials.find(o => o.name === val);
+                                if (off) {
+                                  setNotaPerangkatNama(off.name);
+                                  setNotaPerangkatJabatan(off.jabatan || off.category);
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-6 text-[9px] font-bold border-orange-200 text-orange-700 bg-white w-auto px-2 rounded-lg">
+                                <SelectValue placeholder="Pilih Personil" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(dbOfficials || []).map((o, oIdx) => (
+                                  <SelectItem key={oIdx} value={o.name} className="text-xs font-medium">
+                                    {o.name} ({o.jabatan || o.category})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </div>
+                        <Input
+                          placeholder="Contoh: TEDY TRISNANTO"
+                          value={notaPerangkatNama}
+                          onChange={(e) => setNotaPerangkatNama(e.target.value)}
+                          className="h-12 rounded-xl bg-white border-orange-200 font-bold"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Penerima Faktur (Kepala Desa)</Label>
+                          {dbOfficials && dbOfficials.length > 0 && (
+                            <Select
+                              onValueChange={(val) => setNotaKepalaDesa(val)}
+                            >
+                              <SelectTrigger className="h-6 text-[9px] font-bold border-orange-200 text-orange-700 bg-white w-auto px-2 rounded-lg">
+                                <SelectValue placeholder="Pilih Kades" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(dbOfficials || []).map((o, oIdx) => (
+                                  <SelectItem key={oIdx} value={o.name} className="text-xs font-medium">
+                                    {o.name} ({o.jabatan || o.category})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </div>
+                        <Input
+                          placeholder="Contoh: SARYOKO"
+                          value={notaKepalaDesa}
+                          onChange={(e) => setNotaKepalaDesa(e.target.value)}
+                          className="h-12 rounded-xl bg-white border-orange-200 font-bold"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Nama Pemilik Toko / Pengirim</Label>
+                        <Input
+                          placeholder="Contoh: DEDI"
+                          value={notaNamaPemilik}
+                          onChange={(e) => setNotaNamaPemilik(e.target.value)}
+                          className="h-12 rounded-xl bg-white border-orange-200 font-bold"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Nama Toko / Usaha</Label>
+                        <Input
+                          placeholder="Contoh: NAYA"
+                          value={notaNamaToko}
+                          onChange={(e) => setNotaNamaToko(e.target.value)}
+                          className="h-12 rounded-xl bg-white border-orange-200 font-bold text-orange-950"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Desa / Lokasi Toko (Di-)</Label>
+                        <Input
+                          placeholder="Contoh: CINANGSI"
+                          value={notaAlamatToko}
+                          onChange={(e) => setNotaAlamatToko(e.target.value)}
+                          className="h-12 rounded-xl bg-white border-orange-200 font-medium"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Daftar Barang Nota */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-[10px] font-black uppercase text-orange-950 tracking-widest ml-1 flex items-center gap-1.5">
+                        <ShoppingBag className="h-3.5 w-3.5 text-orange-600" />
+                        Rincian Barang Belanja ({notaItems.length} Item)
+                      </Label>
+                      <Button
+                        type="button"
+                        onClick={addNotaItem}
+                        variant="outline"
+                        size="sm"
+                        className="h-9 gap-1.5 rounded-xl border-orange-200 bg-white text-orange-950 hover:bg-orange-50 hover:text-orange-900 text-xs font-bold shadow-xs cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5 text-orange-600" />
+                        <span className="text-orange-950 font-bold">Tambah Barang</span>
+                      </Button>
+                    </div>
+
+                    {/* Tabel Rincian Barang 1 Baris */}
+                    <div className="rounded-2xl border border-orange-200/90 bg-white overflow-hidden shadow-xs">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[700px]">
+                          <thead>
+                            <tr className="bg-orange-100/70 border-b border-orange-200 text-[10px] font-black uppercase text-orange-950 tracking-wider">
+                              <th className="py-3 px-2 text-center w-12">No</th>
+                              <th className="py-3 px-3">Jenis / Nama Barang</th>
+                              <th className="py-3 px-2 text-center w-24">Banyaknya</th>
+                              <th className="py-3 px-2 text-center w-28">Satuan</th>
+                              <th className="py-3 px-3 text-right w-36">Harga Satuan (Rp)</th>
+                              <th className="py-3 px-3 text-right w-36">Subtotal</th>
+                              <th className="py-3 px-2 text-center w-14">Aksi</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-orange-100">
+                            {notaItems.map((item, idx) => (
+                              <tr key={idx} className="hover:bg-orange-50/40 transition-colors">
+                                {/* 1. No */}
+                                <td className="py-2.5 px-2 text-center">
+                                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-orange-50 border border-orange-200 text-xs font-black text-orange-950">
+                                    {idx + 1}
+                                  </span>
+                                </td>
+
+                                {/* 2. Jenis / Nama Barang */}
+                                <td className="py-2.5 px-3">
+                                  <Input
+                                    placeholder="Contoh: Foto Copy Undangan dan Materi"
+                                    value={item.jenisBarang}
+                                    onChange={(e) => handleNotaItemChange(idx, "jenisBarang", e.target.value)}
+                                    className="h-10 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-500 font-bold text-xs md:text-sm text-slate-800 w-full"
+                                  />
+                                </td>
+
+                                {/* 3. Banyaknya */}
+                                <td className="py-2.5 px-2">
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    placeholder="1"
+                                    value={item.banyaknya}
+                                    onChange={(e) => handleNotaItemChange(idx, "banyaknya", e.target.value)}
+                                    className="h-10 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-500 font-bold text-center text-xs md:text-sm text-slate-800 w-full"
+                                  />
+                                </td>
+
+                                {/* 4. Satuan */}
+                                <td className="py-2.5 px-2">
+                                  <Input
+                                    placeholder="buah / Rim"
+                                    value={item.satuan}
+                                    onChange={(e) => handleNotaItemChange(idx, "satuan", e.target.value)}
+                                    className="h-10 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-500 font-medium text-center text-xs md:text-sm text-slate-800 w-full"
+                                  />
+                                </td>
+
+                                {/* 5. Harga Satuan */}
+                                <td className="py-2.5 px-3">
+                                  <Input
+                                    type="number"
+                                    placeholder="0"
+                                    value={item.hargaSatuan}
+                                    onChange={(e) => handleNotaItemChange(idx, "hargaSatuan", e.target.value)}
+                                    className="h-10 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-500 font-bold text-right text-xs md:text-sm text-orange-950 w-full"
+                                  />
+                                </td>
+
+                                {/* 6. Subtotal */}
+                                <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                  <span className="font-black text-xs text-orange-800 bg-orange-50 px-2.5 py-1.5 rounded-lg border border-orange-200/80 block text-right">
+                                    Rp {(Number(item.jumlah) || 0).toLocaleString("id-ID")}
+                                  </span>
+                                </td>
+
+                                {/* 7. Aksi */}
+                                <td className="py-2.5 px-2 text-center">
+                                  {notaItems.length > 1 ? (
+                                    <Button
+                                      type="button"
+                                      onClick={() => removeNotaItem(idx)}
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-rose-500 hover:bg-rose-50 hover:text-rose-600 rounded-lg cursor-pointer"
+                                      title="Hapus baris"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  ) : (
+                                    <span className="text-muted-foreground/30 text-xs">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Total Baris Nota */}
+                    <div className="p-5 rounded-2xl bg-orange-500 text-white flex items-center justify-between shadow-lg shadow-orange-500/20">
+                      <div>
+                        <p className="text-[10px] uppercase font-bold tracking-wider opacity-90">Total Nota &amp; Faktur</p>
+                        <p className="text-xl font-black">
+                          Rp {notaItems.reduce((acc, it) => acc + (Number(it.jumlah) || 0), 0).toLocaleString("id-ID")}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={addNotaItem}
+                        variant="outline"
+                        className="rounded-xl font-black text-xs gap-1.5 h-10 bg-white text-orange-950 border border-orange-200 hover:bg-orange-50 hover:text-orange-900 shadow-sm cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5 text-orange-600" />
+                        <span className="text-orange-950 font-black">Tambah Barang</span>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: STRUK BELANJA KASIR */}
+              {buktiTab === "struk-belanja" && (
+                <div className="space-y-6 animate-in slide-in-from-bottom-2">
+                  {/* Identitas Merchant / Toko Struk */}
+                  <div className="p-6 rounded-3xl bg-orange-50/40 border border-orange-200/80 space-y-5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ReceiptText className="h-4 w-4 text-orange-600" />
+                        <h3 className="text-xs font-black uppercase text-orange-950 tracking-wider">
+                          Rincian Struk &amp; Waktu Transaksi
+                        </h3>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={setCurrentTimeForStruk}
+                        variant="outline"
+                        size="sm"
+                        className="h-8 rounded-lg border-orange-200 text-orange-700 hover:bg-orange-50 text-[10px] font-bold"
+                      >
+                        <Clock className="h-3 w-3 mr-1 text-orange-600" /> Waktu Sekarang
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Tanggal Pembelian</Label>
+                        <div className="relative">
+                          <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-600" />
+                          <Input
+                            type="date"
+                            value={strukDate}
+                            onChange={(e) => setStrukDate(e.target.value)}
+                            className="h-12 pl-12 rounded-xl bg-white border-orange-200 font-bold"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Waktu Transaksi (Jam : Menit : Detik)</Label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <Input
+                            placeholder="Jam (00-23)"
+                            value={strukJam}
+                            onChange={(e) => setStrukJam(e.target.value)}
+                            className="h-12 rounded-xl bg-white border-orange-200 text-center font-bold"
+                          />
+                          <Input
+                            placeholder="Menit (00-59)"
+                            value={strukMenit}
+                            onChange={(e) => setStrukMenit(e.target.value)}
+                            className="h-12 rounded-xl bg-white border-orange-200 text-center font-bold"
+                          />
+                          <Input
+                            placeholder="Detik (00-59)"
+                            value={strukDetik}
+                            onChange={(e) => setStrukDetik(e.target.value)}
+                            className="h-12 rounded-xl bg-white border-orange-200 text-center font-bold"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Nama Toko / Minimarket</Label>
+                        <Input
+                          placeholder="Contoh: MINIMARKET GINTUNGREJA JAYA"
+                          value={strukNamaToko}
+                          onChange={(e) => setStrukNamaToko(e.target.value)}
+                          className="h-12 rounded-xl bg-white border-orange-200 font-bold text-orange-950"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Alamat Toko</Label>
+                        <Input
+                          placeholder="Contoh: Jl. Raya Pelita KM 5 Gintungreja"
+                          value={strukAlamatToko}
+                          onChange={(e) => setStrukAlamatToko(e.target.value)}
+                          className="h-12 rounded-xl bg-white border-orange-200 font-medium"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Nama Kasir (Opsional)</Label>
+                        <Input
+                          placeholder="KASIR 01"
+                          value={strukKasir}
+                          onChange={(e) => setStrukKasir(e.target.value)}
+                          className="h-12 rounded-xl bg-white border-orange-200 font-medium"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Nominal Pembayaran Tunai (Rp)</Label>
+                        <Input
+                          type="number"
+                          placeholder="Opsional (Pas / Otomatis)"
+                          value={strukBayarTunai}
+                          onChange={(e) => setStrukBayarTunai(e.target.value)}
+                          className="h-12 rounded-xl bg-white border-orange-200 font-bold text-orange-950"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Daftar Barang Struk */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-[10px] font-black uppercase text-orange-950 tracking-widest ml-1 flex items-center gap-1.5">
+                        <ShoppingBag className="h-3.5 w-3.5 text-orange-600" />
+                        Barang Belanjaan Struk ({strukItems.length} Item)
+                      </Label>
+                      <Button
+                        type="button"
+                        onClick={addStrukItem}
+                        variant="outline"
+                        size="sm"
+                        className="h-9 gap-1.5 rounded-xl border-orange-200 bg-white text-orange-950 hover:bg-orange-50 hover:text-orange-900 text-xs font-bold shadow-xs cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5 text-orange-600" />
+                        <span className="text-orange-950 font-bold">Tambah Barang</span>
+                      </Button>
+                    </div>
+
+                    {/* Tabel Rincian Barang 1 Baris */}
+                    <div className="rounded-2xl border border-orange-200/90 bg-white overflow-hidden shadow-xs">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[700px]">
+                          <thead>
+                            <tr className="bg-orange-100/70 border-b border-orange-200 text-[10px] font-black uppercase text-orange-950 tracking-wider">
+                              <th className="py-3 px-2 text-center w-12">No</th>
+                              <th className="py-3 px-3">Jenis / Nama Barang</th>
+                              <th className="py-3 px-2 text-center w-24">Banyaknya</th>
+                              <th className="py-3 px-2 text-center w-28">Satuan</th>
+                              <th className="py-3 px-3 text-right w-36">Harga Satuan (Rp)</th>
+                              <th className="py-3 px-3 text-right w-36">Subtotal</th>
+                              <th className="py-3 px-2 text-center w-14">Aksi</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-orange-100">
+                            {strukItems.map((item, idx) => (
+                              <tr key={idx} className="hover:bg-orange-50/40 transition-colors">
+                                {/* 1. No */}
+                                <td className="py-2.5 px-2 text-center">
+                                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-orange-50 border border-orange-200 text-xs font-black text-orange-950">
+                                    {idx + 1}
+                                  </span>
+                                </td>
+
+                                {/* 2. Jenis / Nama Barang */}
+                                <td className="py-2.5 px-3">
+                                  <Input
+                                    placeholder="Contoh: Aqua Botol 600ml"
+                                    value={item.jenisBarang}
+                                    onChange={(e) => handleStrukItemChange(idx, "jenisBarang", e.target.value)}
+                                    className="h-10 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-500 font-bold text-xs md:text-sm text-slate-800 w-full"
+                                  />
+                                </td>
+
+                                {/* 3. Banyaknya */}
+                                <td className="py-2.5 px-2">
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    placeholder="1"
+                                    value={item.banyaknya}
+                                    onChange={(e) => handleStrukItemChange(idx, "banyaknya", e.target.value)}
+                                    className="h-10 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-500 font-bold text-center text-xs md:text-sm text-slate-800 w-full"
+                                  />
+                                </td>
+
+                                {/* 4. Satuan */}
+                                <td className="py-2.5 px-2">
+                                  <Input
+                                    placeholder="Pcs / Btl"
+                                    value={item.satuan}
+                                    onChange={(e) => handleStrukItemChange(idx, "satuan", e.target.value)}
+                                    className="h-10 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-500 font-medium text-center text-xs md:text-sm text-slate-800 w-full"
+                                  />
+                                </td>
+
+                                {/* 5. Harga Satuan */}
+                                <td className="py-2.5 px-3">
+                                  <Input
+                                    type="number"
+                                    placeholder="0"
+                                    value={item.hargaSatuan}
+                                    onChange={(e) => handleStrukItemChange(idx, "hargaSatuan", e.target.value)}
+                                    className="h-10 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-500 font-bold text-right text-xs md:text-sm text-orange-950 w-full"
+                                  />
+                                </td>
+
+                                {/* 6. Subtotal */}
+                                <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                  <span className="font-black text-xs text-orange-800 bg-orange-50 px-2.5 py-1.5 rounded-lg border border-orange-200/80 block text-right">
+                                    Rp {(Number(item.jumlah) || 0).toLocaleString("id-ID")}
+                                  </span>
+                                </td>
+
+                                {/* 7. Aksi */}
+                                <td className="py-2.5 px-2 text-center">
+                                  {strukItems.length > 1 ? (
+                                    <Button
+                                      type="button"
+                                      onClick={() => removeStrukItem(idx)}
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-rose-500 hover:bg-rose-50 hover:text-rose-600 rounded-lg cursor-pointer"
+                                      title="Hapus baris"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  ) : (
+                                    <span className="text-muted-foreground/30 text-xs">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Total Baris Struk */}
+                    <div className="p-5 rounded-2xl bg-orange-500 text-white flex items-center justify-between shadow-lg shadow-orange-500/20">
+                      <div>
+                        <p className="text-[10px] uppercase font-bold tracking-wider opacity-90">Total Belanja Struk</p>
+                        <p className="text-xl font-black">
+                          Rp {strukItems.reduce((acc, it) => acc + (Number(it.jumlah) || 0), 0).toLocaleString("id-ID")}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={addStrukItem}
+                        variant="outline"
+                        className="rounded-xl font-black text-xs gap-1.5 h-10 bg-white text-orange-950 border border-orange-200 hover:bg-orange-50 hover:text-orange-900 shadow-sm cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5 text-orange-600" />
+                        <span className="text-orange-950 font-black">Tambah Barang</span>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {(type !== "siltap" && type !== "insentif" && type !== "daftar-hadir-posyandu" && type !== "bukti-transaksi") && (
             <div className="space-y-8">
               <div className="flex gap-2 p-1 bg-muted/50 rounded-xl">
-                <Button 
-                  variant={useApbdes ? "default" : "ghost"} 
+                <Button
+                  variant={useApbdes ? "default" : "ghost"}
                   className={cn("flex-1 text-[10px] uppercase font-black gap-2 h-10", useApbdes && "shadow-md")}
                   onClick={() => setUseApbdes(true)}
                 >
                   <Database className="h-3 w-3" /> APBDes
                 </Button>
-                <Button 
-                  variant={!useApbdes ? "default" : "ghost"} 
+                <Button
+                  variant={!useApbdes ? "default" : "ghost"}
                   className={cn("flex-1 text-[10px] uppercase font-black gap-2 h-10", !useApbdes && "shadow-md")}
                   onClick={() => setUseApbdes(false)}
                 >
@@ -796,19 +1593,19 @@ function DokumenContent() {
                 {useApbdes ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="sm:col-span-2 space-y-2">
-                        <Label className="text-[10px] font-black uppercase text-primary tracking-widest ml-1 flex items-center gap-2">
-                            <Calendar className="h-3 w-3" /> Pilih Tahun APBDes
-                        </Label>
-                        <Select value={selectedYear} onValueChange={(val) => { setSelectedYear(val); setSumber(""); setKegiatan(""); }}>
-                            <SelectTrigger className="h-12 rounded-xl bg-primary/5 border-primary/10 px-5 font-black text-primary">
-                                <SelectValue placeholder="Pilih Tahun..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {["2024", "2025", "2026", "2027", "2028", "2029"].map(y => (
-                                    <SelectItem key={y} value={y}>{y}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                      <Label className="text-[10px] font-black uppercase text-primary tracking-widest ml-1 flex items-center gap-2">
+                        <Calendar className="h-3 w-3" /> Pilih Tahun APBDes
+                      </Label>
+                      <Select value={selectedYear} onValueChange={(val) => { setSelectedYear(val); setSumber(""); setKegiatan(""); }}>
+                        <SelectTrigger className="h-12 rounded-xl bg-primary/5 border-primary/10 px-5 font-black text-primary">
+                          <SelectValue placeholder="Pilih Tahun..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {["2024", "2025", "2026", "2027", "2028", "2029"].map(y => (
+                            <SelectItem key={y} value={y}>{y}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     <div className="space-y-2">
@@ -844,7 +1641,7 @@ function DokumenContent() {
                           <SelectValue placeholder={isApbLoading ? "Memuat..." : "Pilih Uraian..."} />
                         </SelectTrigger>
                         <SelectContent>
-                          {filteredActivities.map(item => (
+                          {filteredActivities.map((item: any) => (
                             <SelectItem key={item.id} value={item.uraian}>{item.uraian}</SelectItem>
                           ))}
                         </SelectContent>
@@ -854,11 +1651,11 @@ function DokumenContent() {
                 ) : (
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Nama Kegiatan</Label>
-                    <Input 
-                      placeholder="Ketik perihal kegiatan..." 
+                    <Input
+                      placeholder="Ketik perihal kegiatan..."
                       value={manualTitle}
                       onChange={(e) => setManualTitle(e.target.value)}
-                      className="h-14 rounded-2xl bg-muted/20 border-none px-5 text-base font-medium" 
+                      className="h-14 rounded-2xl bg-muted/20 border-none px-5 text-base font-medium"
                     />
                   </div>
                 )}
@@ -868,11 +1665,11 @@ function DokumenContent() {
                     <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Tanggal</Label>
                     <div className="relative">
                       <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input 
-                        type="date" 
+                      <Input
+                        type="date"
                         value={date}
                         onChange={(e) => setDate(e.target.value)}
-                        className="h-12 pl-12 rounded-xl bg-muted/20 border-none font-medium" 
+                        className="h-12 pl-12 rounded-xl bg-muted/20 border-none font-medium"
                       />
                     </div>
                   </div>
@@ -880,11 +1677,11 @@ function DokumenContent() {
                     <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Waktu</Label>
                     <div className="relative">
                       <Clock className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input 
-                        placeholder="09:00 WIB" 
+                      <Input
+                        placeholder="09:00 WIB"
                         value={time}
                         onChange={(e) => setTime(e.target.value)}
-                        className="h-12 pl-12 rounded-xl bg-muted/20 border-none font-medium" 
+                        className="h-12 pl-12 rounded-xl bg-muted/20 border-none font-medium"
                       />
                     </div>
                   </div>
@@ -892,11 +1689,11 @@ function DokumenContent() {
 
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Lokasi</Label>
-                  <Input 
-                    placeholder="Lokasi kegiatan..." 
+                  <Input
+                    placeholder="Lokasi kegiatan..."
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    className="h-12 rounded-xl bg-muted/20 border-none px-5 font-medium" 
+                    className="h-12 rounded-xl bg-muted/20 border-none px-5 font-medium"
                   />
                 </div>
               </div>
@@ -905,88 +1702,327 @@ function DokumenContent() {
 
           {type === "honor-narasumber" && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
-                <div className="space-y-4">
-                    <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Jumlah Narasumber</Label>
-                    <div className="grid grid-cols-4 gap-3">
-                        {[1, 2, 3, 4].map((n) => (
-                            <Button
-                                key={n}
-                                type="button"
-                                variant={numNarsum === n ? "default" : "outline"}
-                                onClick={() => setNumNarsum(n)}
-                                className={cn(
-                                    "h-14 rounded-2xl font-black text-sm transition-all",
-                                    numNarsum === n ? "bg-amber-600 hover:bg-amber-700 shadow-lg shadow-amber-200" : "border-amber-200 hover:bg-amber-50 text-amber-900"
-                                )}
-                            >
-                                {n} Orang
-                            </Button>
-                        ))}
+              <div className="space-y-4">
+                <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Jumlah Narasumber</Label>
+                <div className="grid grid-cols-4 gap-3">
+                  {[1, 2, 3, 4].map((n) => (
+                    <Button
+                      key={n}
+                      type="button"
+                      variant={numNarsum === n ? "default" : "outline"}
+                      onClick={() => setNumNarsum(n)}
+                      className={cn(
+                        "h-14 rounded-2xl font-black text-sm transition-all",
+                        numNarsum === n ? "bg-amber-600 hover:bg-amber-700 shadow-lg shadow-amber-200" : "border-amber-200 hover:bg-amber-50 text-amber-900"
+                      )}
+                    >
+                      {n} Orang
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {Array.from({ length: numNarsum }).map((_, i) => (
+                  <div key={i} className="p-6 rounded-[2rem] border border-amber-100 bg-amber-50/30 relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-600 opacity-20" />
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-[10px] font-black uppercase text-amber-800 tracking-[0.2em]">Narasumber {i + 1}</h3>
+                      <Briefcase className="h-4 w-4 text-amber-600 opacity-40" />
                     </div>
-                </div>
 
-                <div className="space-y-6">
-                    {Array.from({ length: numNarsum }).map((_, i) => (
-                        <div key={i} className="p-6 rounded-[2rem] border border-amber-100 bg-amber-50/30 relative overflow-hidden group">
-                            <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-600 opacity-20" />
-                            <div className="flex items-center justify-between mb-6">
-                                <h3 className="text-[10px] font-black uppercase text-amber-800 tracking-[0.2em]">Narasumber {i + 1}</h3>
-                                <Briefcase className="h-4 w-4 text-amber-600 opacity-40" />
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                                <div className="space-y-2">
-                                    <Label className="text-[9px] font-black uppercase text-amber-900/60 ml-1">Nama Lengkap</Label>
-                                    <Input 
-                                        placeholder="Ketik nama..." 
-                                        value={narsumData[i].name}
-                                        onChange={(e) => updateNarsumData(i, "name", e.target.value)}
-                                        className="h-12 rounded-xl bg-white border-amber-100 focus:border-amber-400"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[9px] font-black uppercase text-amber-900/60 ml-1">Jabatan</Label>
-                                    <Input 
-                                        placeholder="Jabatan/Instansi..." 
-                                        value={narsumData[i].position}
-                                        onChange={(e) => updateNarsumData(i, "position", e.target.value)}
-                                        className="h-12 rounded-xl bg-white border-amber-100 focus:border-amber-400"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[9px] font-black uppercase text-amber-900/60 ml-1">Nominal Honor (Rp)</Label>
-                                    <div className="relative">
-                                        <Coins className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-600 opacity-50" />
-                                        <Input 
-                                            type="number"
-                                            placeholder="0" 
-                                            value={narsumData[i].nominal}
-                                            onChange={(e) => updateNarsumData(i, "nominal", e.target.value)}
-                                            className="h-12 pl-10 rounded-xl bg-white border-amber-100 focus:border-amber-400 font-bold"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[9px] font-black uppercase text-amber-900/60 ml-1">Pajak (%)</Label>
-                                    <div className="relative">
-                                        <Percent className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-600 opacity-50" />
-                                        <Input 
-                                            type="number"
-                                            placeholder="0" 
-                                            value={narsumData[i].tax}
-                                            onChange={(e) => setNarsumData(prev => {
-                                                const next = [...prev];
-                                                next[i] = { ...next[i], tax: e.target.value };
-                                                return next;
-                                            })}
-                                            className="h-12 pl-10 rounded-xl bg-white border-amber-100 focus:border-amber-400 font-bold"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                      <div className="space-y-2">
+                        <Label className="text-[9px] font-black uppercase text-amber-900/60 ml-1">Nama Lengkap</Label>
+                        <Input
+                          placeholder="Ketik nama..."
+                          value={narsumData[i].name}
+                          onChange={(e) => updateNarsumData(i, "name", e.target.value)}
+                          className="h-12 rounded-xl bg-white border-amber-100 focus:border-amber-400"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[9px] font-black uppercase text-amber-900/60 ml-1">Jabatan</Label>
+                        <Input
+                          placeholder="Jabatan/Instansi..."
+                          value={narsumData[i].position}
+                          onChange={(e) => updateNarsumData(i, "position", e.target.value)}
+                          className="h-12 rounded-xl bg-white border-amber-100 focus:border-amber-400"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[9px] font-black uppercase text-amber-900/60 ml-1">Nominal Honor (Rp)</Label>
+                        <div className="relative">
+                          <Coins className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-600 opacity-50" />
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            value={narsumData[i].nominal}
+                            onChange={(e) => updateNarsumData(i, "nominal", e.target.value)}
+                            className="h-12 pl-10 rounded-xl bg-white border-amber-100 focus:border-amber-400 font-bold"
+                          />
                         </div>
-                    ))}
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[9px] font-black uppercase text-amber-900/60 ml-1">Pajak (%)</Label>
+                        <div className="relative">
+                          <Percent className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-600 opacity-50" />
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            value={narsumData[i].tax}
+                            onChange={(e) => setNarsumData(prev => {
+                              const next = [...prev];
+                              next[i] = { ...next[i], tax: e.target.value };
+                              return next;
+                            })}
+                            className="h-12 pl-10 rounded-xl bg-white border-amber-100 focus:border-amber-400 font-bold"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {type === "honor-kegiatan" && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+              <div className="space-y-4">
+                <Label className="text-[10px] font-black uppercase text-indigo-900 tracking-widest ml-1">
+                  Pilih Kategori Honor Kegiatan
+                </Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {HONOR_KEGIATAN_CATEGORIES.map((cat, idx) => (
+                    <Button
+                      key={cat}
+                      type="button"
+                      onClick={() => handleSelectHonorCat(cat)}
+                      className={cn(
+                        "h-14 rounded-2xl font-black text-xs transition-all border-2 text-left justify-start px-4",
+                        honorKegiatanCat === cat
+                          ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:border-indigo-700"
+                          : "bg-white border-muted text-indigo-950 hover:bg-indigo-50/50 hover:border-indigo-200"
+                      )}
+                    >
+                      <span className={cn(
+                        "h-6 w-6 rounded-full flex items-center justify-center text-[10px] mr-2 shrink-0 font-black",
+                        honorKegiatanCat === cat ? "bg-white/20 text-white" : "bg-indigo-100 text-indigo-700"
+                      )}>
+                        {idx + 1}
+                      </span>
+                      <span className="truncate">{cat}</span>
+                    </Button>
+                  ))}
                 </div>
+              </div>
+
+              {honorKegiatanCat === "Input Manual" && (
+                <div className="space-y-2 p-5 rounded-2xl bg-indigo-50/50 border border-indigo-100 animate-in slide-in-from-top-2">
+                  <Label className="text-[10px] font-black uppercase text-indigo-800 tracking-widest ml-1">
+                    Nama Kategori Honor (Input Manual)
+                  </Label>
+                  <Input
+                    placeholder="Contoh: Honorarium Tim Teknis Lapangan"
+                    value={manualHonorCat}
+                    onChange={(e) => setManualHonorCat(e.target.value)}
+                    className="h-12 rounded-xl bg-white border-indigo-200 font-bold text-indigo-950"
+                  />
+                  <p className="text-[10px] text-indigo-700/70 font-medium ml-1 italic">
+                    * Judul dokumen pada PDF akan dicetak: &quot;TANDA TERIMA {manualHonorCat.trim().toUpperCase() || "HONORARIUM KEGIATAN"}&quot;
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">
+                    Jumlah Penerima Honor
+                  </Label>
+                  <span className="text-xs font-black text-indigo-600">{numHonorKegiatan} Orang</span>
+                </div>
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                  {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+                    <Button
+                      key={n}
+                      type="button"
+                      variant={numHonorKegiatan === n ? "default" : "outline"}
+                      onClick={() => setNumHonorKegiatan(n)}
+                      className={cn(
+                        "h-12 rounded-xl font-black text-xs transition-all",
+                        numHonorKegiatan === n
+                          ? "bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 text-white"
+                          : "border-indigo-100 hover:bg-indigo-50 text-indigo-900"
+                      )}
+                    >
+                      {n} Org
+                    </Button>
+                  ))}
+                </div>
+                {numHonorKegiatan > 10 && (
+                  <div className="flex items-center gap-3 pt-1">
+                    <Label className="text-[10px] font-bold text-muted-foreground">Kustom Jumlah:</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={numHonorKegiatan}
+                      onChange={(e) => setNumHonorKegiatan(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+                      className="w-24 h-10 rounded-lg text-center font-bold"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-indigo-50/40 rounded-3xl border border-indigo-100 space-y-4 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Coins className="h-4 w-4 text-indigo-600" />
+                    <Label className="text-xs font-black uppercase text-indigo-950 tracking-tight">
+                      Pengisian Nominal Cepat (Otomatis ke Semua)
+                    </Label>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-bold uppercase text-indigo-900/70 ml-1">Nominal Honor (Rp)</Label>
+                    <Input
+                      type="number"
+                      placeholder="Contoh: 150000"
+                      value={batchHonorNominal}
+                      onChange={(e) => setBatchHonorNominal(e.target.value)}
+                      className="h-11 rounded-xl bg-white border-indigo-200 font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-bold uppercase text-indigo-900/70 ml-1">Pajak (%)</Label>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      value={batchHonorTax}
+                      onChange={(e) => setBatchHonorTax(e.target.value)}
+                      className="h-11 rounded-xl bg-white border-indigo-200 font-bold"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      onClick={applyBatchHonor}
+                      className="w-full h-11 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs shadow-xs"
+                    >
+                      Terapkan ke Semua
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                {Array.from({ length: numHonorKegiatan }).map((_, i) => {
+                  const item = honorKegiatanData[i] || { name: "", position: "", nominal: "", tax: "0" };
+                  const nom = parseInt(item.nominal) || 0;
+                  const taxPercent = parseInt(item.tax) || 0;
+                  const taxVal = Math.round(nom * (taxPercent / 100));
+                  const netVal = nom - taxVal;
+
+                  return (
+                    <div key={i} className="p-6 rounded-3xl border border-indigo-100 bg-white shadow-xs relative overflow-hidden group hover:border-indigo-300 transition-all">
+                      <div className="absolute top-0 left-0 w-1.5 h-full bg-indigo-600 opacity-70" />
+                      <div className="flex items-center justify-between mb-5">
+                        <div className="flex items-center gap-2">
+                          <span className="h-6 w-6 rounded-full bg-indigo-100 text-indigo-700 font-black text-xs flex items-center justify-center">
+                            {i + 1}
+                          </span>
+                          <h3 className="text-xs font-black uppercase text-indigo-950 tracking-wider">
+                            Penerima {i + 1}
+                          </h3>
+                        </div>
+                        {nom > 0 && (
+                          <span className="text-[10px] font-black bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full border border-indigo-100">
+                            Diterima: Rp {netVal.toLocaleString('id-ID')}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Nama Penerima</Label>
+                            {dbOfficials && dbOfficials.length > 0 && (
+                              <Select
+                                onValueChange={(val) => {
+                                  const off = dbOfficials.find(o => o.name === val);
+                                  if (off) {
+                                    updateHonorKegiatanData(i, "name", off.name);
+                                    if (off.jabatan) {
+                                      updateHonorKegiatanData(i, "position", off.jabatan);
+                                    }
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="h-7 text-[10px] font-bold border-indigo-100 text-indigo-600 bg-indigo-50/50 w-auto px-2 rounded-lg">
+                                  <SelectValue placeholder="Pilih dari Data Personil Desa" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(dbOfficials || []).map((o, oIdx) => (
+                                    <SelectItem key={oIdx} value={o.name} className="text-xs font-medium">
+                                      {o.name} ({o.jabatan || o.category})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                          <Input
+                            placeholder="Ketik nama lengkap penerima..."
+                            value={item.name}
+                            onChange={(e) => updateHonorKegiatanData(i, "name", e.target.value)}
+                            className="h-12 rounded-xl bg-muted/20 border-none font-bold"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Jabatan / Peran</Label>
+                          <Input
+                            placeholder="Contoh: Protokoler / Petugas / Anggota"
+                            value={item.position}
+                            onChange={(e) => updateHonorKegiatanData(i, "position", e.target.value)}
+                            className="h-12 rounded-xl bg-muted/20 border-none font-medium"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Nominal Honor (Rp)</Label>
+                          <div className="relative">
+                            <Coins className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-indigo-600 opacity-60" />
+                            <Input
+                              type="number"
+                              placeholder="0"
+                              value={item.nominal}
+                              onChange={(e) => updateHonorKegiatanData(i, "nominal", e.target.value)}
+                              className="h-12 pl-10 rounded-xl bg-muted/20 border-none font-black text-indigo-950"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Potongan Pajak (%)</Label>
+                          <div className="relative">
+                            <Percent className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-indigo-600 opacity-60" />
+                            <Input
+                              type="number"
+                              placeholder="0"
+                              value={item.tax}
+                              onChange={(e) => updateHonorKegiatanData(i, "tax", e.target.value)}
+                              className="h-12 pl-10 rounded-xl bg-muted/20 border-none font-black text-indigo-950"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -996,7 +2032,7 @@ function DokumenContent() {
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Kuota Peserta (Master Baris Tabel)</Label>
                 <div className="relative">
                   <Users className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
-                  <Input 
+                  <Input
                     type="number"
                     value={jumlahOrang}
                     onChange={(e) => setJumlahOrang(parseInt(e.target.value) || 0)}
@@ -1012,12 +2048,12 @@ function DokumenContent() {
                     <Label className="text-[10px] font-black uppercase text-teal-900 tracking-widest">Nominal Uang Saku (Rp)</Label>
                     <div className="relative">
                       <Coins className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-teal-600" />
-                      <Input 
+                      <Input
                         type="number"
-                        placeholder="0" 
+                        placeholder="0"
                         value={uangSakuNominal}
                         onChange={(e) => setUangSakuNominal(e.target.value)}
-                        className="h-12 pl-12 rounded-xl bg-white border-teal-200 font-black text-teal-700" 
+                        className="h-12 pl-12 rounded-xl bg-white border-teal-200 font-black text-teal-700"
                       />
                     </div>
                   </div>
@@ -1025,12 +2061,12 @@ function DokumenContent() {
                     <Label className="text-[10px] font-black uppercase text-teal-900 tracking-widest">Pot Pajak (%)</Label>
                     <div className="relative">
                       <Percent className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-teal-600" />
-                      <Input 
+                      <Input
                         type="number"
-                        placeholder="0" 
+                        placeholder="0"
                         value={uangSakuTax}
                         onChange={(e) => setUangSakuTax(e.target.value)}
-                        className="h-12 pl-12 rounded-xl bg-white border-teal-200 font-black text-teal-700" 
+                        className="h-12 pl-12 rounded-xl bg-white border-teal-200 font-black text-teal-700"
                       />
                     </div>
                   </div>
@@ -1051,8 +2087,8 @@ function DokumenContent() {
                   {participantSelections.map((selection, i) => (
                     <div key={i} className="space-y-1.5">
                       <Label className={cn("text-[9px] font-black uppercase ml-1", type === "uang-saku" ? "text-teal-800" : "text-primary/90")}>Kelompok Peserta {i + 1}</Label>
-                      <Select 
-                        value={selection} 
+                      <Select
+                        value={selection}
                         onValueChange={(value) => handleParticipantSelectionChange(i, value)}
                       >
                         <SelectTrigger className={cn("h-11 rounded-xl bg-white", type === "uang-saku" ? "border-teal-200" : "border-primary/20")}>
@@ -1073,15 +2109,17 @@ function DokumenContent() {
           )}
 
           <div className="pt-6 border-t space-y-4">
-            <Button 
+            <Button
               className={cn(
                 "w-full h-16 gap-3 text-lg font-black uppercase shadow-lg rounded-[1.25rem] active:scale-95 transition-all",
-                type === "honor-narasumber" ? "bg-amber-600 hover:bg-amber-700 shadow-amber-200" : 
-                type === "insentif" ? "bg-purple-600 hover:bg-purple-700 text-white shadow-purple-200" :
-                type === "siltap" ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" :
-                type === "uang-saku" ? "bg-teal-600 hover:bg-teal-700 text-teal-50 shadow-teal-200" :
-                type === "daftar-hadir-posyandu" ? "bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200" :
-                "bg-primary hover:bg-primary/90 shadow-primary/20"
+                type === "honor-narasumber" ? "bg-amber-600 hover:bg-amber-700 shadow-amber-200" :
+                  type === "honor-kegiatan" ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200" :
+                    type === "bukti-transaksi" ? "bg-orange-500 hover:bg-orange-600 text-white shadow-orange-500/20" :
+                      type === "insentif" ? "bg-purple-600 hover:bg-purple-700 text-white shadow-purple-200" :
+                        type === "siltap" ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" :
+                          type === "uang-saku" ? "bg-teal-600 hover:bg-teal-700 text-teal-50 shadow-teal-200" :
+                            type === "daftar-hadir-posyandu" ? "bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200" :
+                              "bg-primary hover:bg-primary/90 shadow-primary/20"
               )}
               onClick={handlePrint}
               disabled={isGenerating}
@@ -1090,7 +2128,7 @@ function DokumenContent() {
               Cetak PDF Sekarang
             </Button>
             <p className="text-[10px] text-center text-muted-foreground italic font-medium">
-                * Dokumen akan dicetak dengan kop surat Pemerintah Desa Cinangsi.
+              * Dokumen akan dicetak dengan kop surat Pemerintah Desa Gintungreja.
             </p>
           </div>
         </CardContent>

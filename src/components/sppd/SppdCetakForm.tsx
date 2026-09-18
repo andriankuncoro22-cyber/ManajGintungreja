@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState } from "react"
@@ -26,13 +25,12 @@ export function SppdCetakForm() {
   const { user } = useUser()
   const db = useFirestore()
 
-  // Ambil Logo dan Pengaturan Desa dari Koleksi Global
-  const villageSettingsRef = useMemoFirebase(() => {
+  const userDocRef = useMemoFirebase(() => {
     if (!db || !user) return null
-    return doc(db, "settings", "village")
+    return doc(db, "users", user.uid)
   }, [db, user])
   
-  const { data: villageSettings } = useDoc(villageSettingsRef)
+  const { data: userData } = useDoc(userDocRef)
 
   const sppdQuery = useMemoFirebase(() => {
     if (!db || !user) return null
@@ -66,8 +64,7 @@ export function SppdCetakForm() {
         endDate: data.endDate || "-",
         letterNumber: data.stNumber || data.letterNumber || "-" // Backward compat
       }
-      // Gunakan logo dari settings/village
-      const pdfBlob = await generateSuratTugasPDF(values, villageSettings?.logoBase64)
+      const pdfBlob = await generateSuratTugasPDF(values, userData?.logoBase64)
       const url = URL.createObjectURL(pdfBlob)
       window.open(url, "_blank")
       toast({ title: "Berhasil", description: "Surat tugas telah dibuat." })
@@ -91,8 +88,7 @@ export function SppdCetakForm() {
         totalExpense: data.amount?.toString() || "0",
         documentNumber: data.sppdNumber || data.documentNumber || "-" // Backward compat
       }
-      // Gunakan logo dari settings/village
-      const pdfBlob = await generateSPPDPDF(values, villageSettings?.logoBase64)
+      const pdfBlob = await generateSPPDPDF(values, userData?.logoBase64)
       const url = URL.createObjectURL(pdfBlob)
       window.open(url, "_blank")
       toast({ title: "Berhasil", description: "Dokumen SPPD telah dibuat." })
@@ -193,7 +189,7 @@ export function SppdCetakForm() {
             </div>
           ))
         ) : (
-          <div className="py-20 text-center text-muted-foreground text-sm border-2 border-dashed rounded-3xl bg-muted/5 border-muted/50">
+          <div className="py-20 text-center text-muted-foreground border-2 border-dashed rounded-3xl bg-muted/5 border-muted/50">
             <p className="font-bold text-xs uppercase tracking-widest">Tidak ada data ditemukan</p>
             <p className="text-[10px] mt-1">Silakan lakukan pengajuan biaya baru</p>
           </div>

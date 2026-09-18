@@ -1,6 +1,7 @@
+
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo } from "react"
 import Link from "next/link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Archive, FileText, Scale, Loader2, Plus, Search, ExternalLink, Trash2, AlertCircle, Database, Layers, Activity, Calendar } from "lucide-react"
@@ -11,22 +12,22 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc } from "@/firebase"
-import { collection, doc, orderBy, query } from "firebase/firestore"
+import { collection, doc, orderBy, query, where } from "firebase/firestore"
 import { addDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates"
 import { GOOGLE_CONFIG } from "@/lib/google-config"
-import { BIDANG_NAMES, type ApbItem } from "@/lib/apbdes-data"
+import { BIDANG_NAMES } from "@/lib/apbdes-data"
 
 export default function ArsipDokumenPage() {
   const { user } = useUser()
   const db = useFirestore()
   const { toast } = useToast()
-  
+
   const [isUploading, setIsUploading] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
 
-  // Form states for SPJ
-  const [spjTahun, setSpjTahun] = useState("2026")
+  // Form states for SPJ (Integrated with APBDes Firestore)
+  const [spjTahun, setSpjTahun] = useState(new Date().getFullYear().toString())
   const [spjBidang, setSpjBidang] = useState("")
   const [spjSumber, setSpjSumber] = useState("")
   const [spjKegiatan, setSpjKegiatan] = useState("")
@@ -38,31 +39,30 @@ export default function ArsipDokumenPage() {
   const [phJenisManual, setPhPhJenisManual] = useState("")
   const [phNomor, setPhNomor] = useState("")
 
-  // FETCH APBDes Data from Firestore (Unified Source)
-  const apbRef = useMemoFirebase(() => {
+  // LIVE APBDes Fetching from Firestore filtered by Tahun
+  const apbQuery = useMemoFirebase(() => {
     if (!db || !user) return null
-    return query(collection(db, "apbdes_records"), orderBy("kode", "asc"))
-  }, [db, user])
-  const { data: currentApbData, isLoading: isApbLoading } = useCollection<ApbItem>(apbRef)
+    return query(
+      collection(db, "apbdes"),
+      where("tahun", "==", spjTahun),
+      orderBy("kode", "asc")
+    )
+  }, [db, user, spjTahun])
+  const { data: apbData } = useCollection<any>(apbQuery)
 
   // APBDes Filtering logic for SPJ
   const filteredSources = useMemo(() => {
-    if (!spjBidang || !currentApbData) return []
-    const sources = currentApbData
-      .filter(item => String(item.bidang) === String(spjBidang) && item.tahun === spjTahun)
-      .map(item => String(item.sumber || "").trim())
-      .filter(s => s !== "");
+    if (!spjBidang || !apbData) return []
+    const sources = apbData
+      .filter((item: any) => item.bidang.toString() === spjBidang)
+      .map((item: any) => item.sumber)
     return Array.from(new Set(sources))
-  }, [spjBidang, spjTahun, currentApbData])
+  }, [spjBidang, apbData])
 
   const filteredActivities = useMemo(() => {
-    if (!spjBidang || !spjSumber || !currentApbData) return []
-    return currentApbData.filter(item => 
-      String(item.bidang) === String(spjBidang) && 
-      item.tahun === spjTahun &&
-      String(item.sumber || "").trim() === String(spjSumber).trim()
-    )
-  }, [spjBidang, spjSumber, spjTahun, currentApbData])
+    if (!spjBidang || !spjSumber || !apbData) return []
+    return apbData.filter((item: any) => item.bidang.toString() === spjBidang && item.sumber === spjSumber)
+  }, [spjBidang, spjSumber, apbData])
 
   // GLOBAL DATA FETCHING
   const villageSettingsRef = useMemoFirebase(() => {
@@ -75,7 +75,7 @@ export default function ArsipDokumenPage() {
     if (!db || !user) return null
     return query(collection(db, "spjDesa"), orderBy("createdAt", "desc"))
   }, [db, user])
-  
+
   const phRef = useMemoFirebase(() => {
     if (!db || !user) return null
     return query(collection(db, "produkHukum"), orderBy("createdAt", "desc"))
@@ -107,8 +107,8 @@ export default function ArsipDokumenPage() {
   const uploadToDrive = async (fileName: string, targetFolderId: string) => {
     if (!selectedFile) return null
     if (!targetFolderId) {
-        toast({ variant: "destructive", title: "Folder Belum Diatur", description: "Silakan atur folder penyimpanan di halaman Pengaturan." })
-        return null
+      toast({ variant: "destructive", title: "Folder Belum Diatur", description: "Silakan atur folder penyimpanan di halaman Pengaturan." })
+      return null
     }
 
     const base64 = await fileToBase64(selectedFile)
@@ -123,16 +123,16 @@ export default function ArsipDokumenPage() {
     }
 
     try {
-        const response = await fetch(GOOGLE_CONFIG.appsScriptUrl, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-            redirect: "follow"
-        })
-        const result = await response.json()
-        return result.success ? result : null
+      const response = await fetch(GOOGLE_CONFIG.appsScriptUrl, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        redirect: "follow"
+      })
+      const result = await response.json()
+      return result.success ? result : null
     } catch (e) {
-        console.error("Upload error:", e)
-        return null
+      console.error("Upload error:", e)
+      return null
     }
   }
 
@@ -144,15 +144,15 @@ export default function ArsipDokumenPage() {
 
     const targetFolderId = villageSettings?.spjFolderId;
     if (!targetFolderId) {
-        toast({ variant: "destructive", title: "Folder Belum Diatur", description: "ID Folder SPJ belum diisi di Pengaturan." })
-        return
+      toast({ variant: "destructive", title: "Folder Belum Diatur", description: "ID Folder SPJ belum diisi di Pengaturan." })
+      return
     }
 
     setIsUploading(true)
     try {
-      const fileName = `${spjKegiatan} | ${spjTahun} | ${spjSumber} | ${spjBulan}.pdf`
+      const fileName = `${spjKegiatan} | ${spjSumber} | TA ${spjTahun} | ${spjBulan}.pdf`
       const driveResult = await uploadToDrive(fileName, targetFolderId)
-      
+
       if (driveResult) {
         const docData = {
           createdBy: user.uid,
@@ -188,15 +188,15 @@ export default function ArsipDokumenPage() {
 
     const targetFolderId = villageSettings?.produkHukumFolderId;
     if (!targetFolderId) {
-        toast({ variant: "destructive", title: "Folder Belum Diatur", description: "ID Folder Produk Hukum belum diisi di Pengaturan." })
-        return
+      toast({ variant: "destructive", title: "Folder Belum Diatur", description: "ID Folder Produk Hukum belum diisi di Pengaturan." })
+      return
     }
 
     setIsUploading(true)
     try {
       const fileName = `${phNamaDokumen} | ${finalJenis} No ${phNomor}.pdf`
       const driveResult = await uploadToDrive(fileName, targetFolderId)
-      
+
       if (driveResult) {
         const docData = {
           createdBy: user.uid,
@@ -229,9 +229,9 @@ export default function ArsipDokumenPage() {
   }
 
   const filteredSpj = (spjList || []).filter(item => item.kegiatan.toLowerCase().includes(searchTerm.toLowerCase()))
-  const filteredPh = (phList || []).filter(item => 
-    (item.namaDokumen || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (item.nomorDok || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const filteredPh = (phList || []).filter(item =>
+    (item.namaDokumen || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (item.nomorDok || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
     (item.jenisDok || "").toLowerCase().includes(searchTerm.toLowerCase())
   )
 
@@ -243,16 +243,16 @@ export default function ArsipDokumenPage() {
         </div>
         <div>
           <h1 className="text-2xl font-black text-primary uppercase tracking-tight">Arsip Digital Terpadu</h1>
-          <p className="text-xs text-muted-foreground font-bold uppercase">Database Desa Cinangsi</p>
+          <p className="text-xs text-muted-foreground font-bold uppercase">Database Desa Gintungreja</p>
         </div>
       </header>
 
       {(!villageSettings?.spjFolderId || !villageSettings?.produkHukumFolderId) && (
         <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-1">
-            <AlertCircle className="h-5 w-5 text-yellow-600" />
-            <p className="text-xs font-bold text-yellow-800">
-                Folder penyimpanan belum diatur. Silakan ke menu <Link href="/settings/" className="underline">Pengaturan</Link> untuk mengisi ID Folder Drive.
-            </p>
+          <AlertCircle className="h-5 w-5 text-yellow-600" />
+          <p className="text-xs font-bold text-yellow-800">
+            Folder penyimpanan belum diatur. Silakan ke menu <Link href="/settings/" className="underline">Pengaturan</Link> untuk mengisi ID Folder Drive.
+          </p>
         </div>
       )}
 
@@ -280,12 +280,12 @@ export default function ArsipDokumenPage() {
                   <Label className="text-[10px] font-black uppercase text-muted-foreground flex items-center gap-2">
                     <Calendar className="h-3 w-3" /> Pilih Tahun Anggaran
                   </Label>
-                  <Select value={spjTahun} onValueChange={(val) => { setSpjTahun(val); setSpjSumber(""); setSpjKegiatan(""); }}>
+                  <Select value={spjTahun} onValueChange={(val) => { setSpjTahun(val); setSpjBidang(""); setSpjSumber(""); setSpjKegiatan(""); }}>
                     <SelectTrigger className="h-12 rounded-xl">
                       <SelectValue placeholder="Pilih Tahun..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {["2024", "2025", "2026", "2027", "2028", "2029"].map(y => (
+                      {["2024", "2025", "2026", "2027", "2028", "2029", "2030"].map(y => (
                         <SelectItem key={y} value={y}>{y}</SelectItem>
                       ))}
                     </SelectContent>
@@ -310,30 +310,34 @@ export default function ArsipDokumenPage() {
 
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase text-muted-foreground flex items-center gap-2">
-                    <Database className="h-3 w-3" /> Sumber Anggaran (Sesuai Tahun)
+                    <Database className="h-3 w-3" /> Sumber Anggaran (TA {spjTahun})
                   </Label>
-                  <Select value={spjSumber} disabled={!spjBidang || isApbLoading} onValueChange={(val) => { setSpjSumber(val); setSpjKegiatan(""); }}>
+                  <Select value={spjSumber} disabled={!spjBidang} onValueChange={(val) => { setSpjSumber(val); setSpjKegiatan(""); }}>
                     <SelectTrigger className="h-12 rounded-xl">
-                      <SelectValue placeholder={isApbLoading ? "Memuat..." : "Pilih Sumber..."} />
+                      <SelectValue placeholder="Pilih Sumber..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {filteredSources.map(s => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                      ))}
+                      {filteredSources.length > 0 ? (
+                        filteredSources.map(s => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="none" disabled>Data anggaran tahun ini kosong</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div className="space-y-2 md:col-span-2">
+                <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase text-muted-foreground flex items-center gap-2">
-                    <Activity className="h-3 w-3" /> Nama Kegiatan (Database APBDes {spjTahun})
+                    <Activity className="h-3 w-3" /> Nama Kegiatan
                   </Label>
-                  <Select value={spjKegiatan} disabled={!spjSumber || isApbLoading} onValueChange={setSpjKegiatan}>
+                  <Select value={spjKegiatan} disabled={!spjSumber} onValueChange={setSpjKegiatan}>
                     <SelectTrigger className="h-12 rounded-xl">
-                      <SelectValue placeholder={isApbLoading ? "Memuat APBDes..." : "Pilih Kegiatan..."} />
+                      <SelectValue placeholder="Pilih Kegiatan..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {filteredActivities.map(item => (
+                      {filteredActivities.map((item: any) => (
                         <SelectItem key={item.id} value={item.uraian}>{item.uraian}</SelectItem>
                       ))}
                     </SelectContent>
@@ -358,56 +362,56 @@ export default function ArsipDokumenPage() {
                   <Input type="file" accept=".pdf" onChange={handleFileChange} className="h-12 pt-2.5 rounded-xl border-dashed" />
                 </div>
               </div>
-              <Button 
-                className="w-full h-14 rounded-2xl font-black uppercase shadow-lg shadow-primary/20 gap-2" 
-                disabled={isUploading || !villageSettings?.spjFolderId} 
+              <Button
+                className="w-full h-14 rounded-2xl font-black uppercase shadow-lg shadow-primary/20 gap-2"
+                disabled={isUploading || !villageSettings?.spjFolderId}
                 onClick={handleSaveSpj}
               >
                 {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
-                Arsipkan SPJ
+                Arsipkan SPJ TA {spjTahun}
               </Button>
             </CardContent>
           </Card>
 
           <div className="space-y-4">
-             <div className="flex items-center justify-between px-2">
-                <h3 className="font-black text-primary uppercase text-sm">Daftar Arsip SPJ</h3>
-                <div className="relative w-48 md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Cari kegiatan..." className="pl-9 h-9 text-xs rounded-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-             </div>
-             <div className="grid gap-3">
-                {isSpjLoading ? (
-                    <div className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary/30" /></div>
-                ) : filteredSpj.length > 0 ? (
-                    filteredSpj.map((item) => (
-                        <div key={item.id} className="p-4 bg-white border rounded-2xl shadow-sm flex items-center justify-between gap-4 group hover:border-primary/50 transition-all">
-                            <div className="flex items-center gap-4">
-                                <div className="h-10 w-10 rounded-xl bg-primary/5 flex items-center justify-center shrink-0">
-                                    <FileText className="h-5 w-5 text-primary" />
-                                </div>
-                                <div className="min-w-0">
-                                    <p className="font-bold text-sm truncate">{item.kegiatan}</p>
-                                    <p className="text-[10px] text-muted-foreground font-medium uppercase">{item.tahun} • {item.sumberAnggaran} • {item.bulan}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Button variant="outline" size="sm" className="h-9 rounded-xl gap-2" asChild>
-                                    <a href={item.fileUrl} target="_blank" rel="noopener noreferrer">
-                                        <ExternalLink className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Lihat</span>
-                                    </a>
-                                </Button>
-                                <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:bg-destructive/10 rounded-xl" onClick={() => handleDelete(item.id, "spjDesa")}>
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                            </div>
-                        </div>
-                    ))
-                ) : (
-                    <div className="py-20 text-center border-2 border-dashed rounded-3xl text-muted-foreground">Belum ada arsip SPJ.</div>
-                )}
-             </div>
+            <div className="flex items-center justify-between px-2">
+              <h3 className="font-black text-primary uppercase text-sm">Daftar Arsip SPJ</h3>
+              <div className="relative w-48 md:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Cari kegiatan..." className="pl-9 h-9 text-xs rounded-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid gap-3">
+              {isSpjLoading ? (
+                <div className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary/30" /></div>
+              ) : filteredSpj.length > 0 ? (
+                filteredSpj.map((item) => (
+                  <div key={item.id} className="p-4 bg-white border rounded-2xl shadow-sm flex items-center justify-between gap-4 group hover:border-primary/50 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="h-10 w-10 rounded-xl bg-primary/5 flex items-center justify-center shrink-0">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-sm truncate">{item.kegiatan}</p>
+                        <p className="text-[10px] text-muted-foreground font-medium uppercase">TA {item.tahun} • {item.sumberAnggaran} • {item.bulan}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" className="h-9 rounded-xl gap-2" asChild>
+                        <a href={item.fileUrl} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Lihat</span>
+                        </a>
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:bg-destructive/10 rounded-xl" onClick={() => handleDelete(item.id, "spjDesa")}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="py-20 text-center border-2 border-dashed rounded-3xl text-muted-foreground">Belum ada arsip SPJ.</div>
+              )}
+            </div>
           </div>
         </TabsContent>
 
@@ -437,10 +441,10 @@ export default function ArsipDokumenPage() {
                   </Select>
                 </div>
                 {phJenis === "Lainnya" && (
-                    <div className="space-y-2 animate-in slide-in-from-top-1">
-                        <Label className="text-[10px] font-black uppercase text-muted-foreground">Nama Dokumen Manual</Label>
-                        <Input placeholder="Ketik jenis dokumen..." value={phJenisManual} onChange={(e) => setPhPhJenisManual(e.target.value)} className="h-12 rounded-xl" />
-                    </div>
+                  <div className="space-y-2 animate-in slide-in-from-top-1">
+                    <Label className="text-[10px] font-black uppercase text-muted-foreground">Nama Dokumen Manual</Label>
+                    <Input placeholder="Ketik jenis dokumen..." value={phJenisManual} onChange={(e) => setPhPhJenisManual(e.target.value)} className="h-12 rounded-xl" />
+                  </div>
                 )}
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase text-muted-foreground">Nomor Dokumen</Label>
@@ -451,9 +455,9 @@ export default function ArsipDokumenPage() {
                   <Input type="file" accept=".pdf" onChange={handleFileChange} className="h-12 pt-2.5 rounded-xl border-dashed" />
                 </div>
               </div>
-              <Button 
-                className="w-full h-14 rounded-2xl font-black uppercase shadow-lg shadow-primary/20 gap-2" 
-                disabled={isUploading || !villageSettings?.produkHukumFolderId} 
+              <Button
+                className="w-full h-14 rounded-2xl font-black uppercase shadow-lg shadow-primary/20 gap-2"
+                disabled={isUploading || !villageSettings?.produkHukumFolderId}
                 onClick={handleSavePh}
               >
                 {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
@@ -463,44 +467,44 @@ export default function ArsipDokumenPage() {
           </Card>
 
           <div className="space-y-4">
-             <div className="flex items-center justify-between px-2">
-                <h3 className="font-black text-primary uppercase text-sm">Daftar Arsip Produk Hukum</h3>
-                <div className="relative w-48 md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Cari nama/nomor/jenis..." className="pl-9 h-9 text-xs rounded-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-             </div>
-             <div className="grid gap-3">
-                {isPhLoading ? (
-                    <div className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary/30" /></div>
-                ) : filteredPh.length > 0 ? (
-                    filteredPh.map((item) => (
-                        <div key={item.id} className="p-4 bg-white border rounded-2xl shadow-sm flex items-center justify-between gap-4 group hover:border-primary/50 transition-all">
-                            <div className="flex items-center gap-4">
-                                <div className="h-10 w-10 rounded-xl bg-primary/5 flex items-center justify-center shrink-0">
-                                    <Scale className="h-5 w-5 text-primary" />
-                                </div>
-                                <div className="min-w-0">
-                                    <p className="font-bold text-sm truncate">{item.namaDokumen}</p>
-                                    <p className="text-[10px] text-muted-foreground font-medium uppercase">{item.jenisDok} • {item.nomorDok}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Button variant="outline" size="sm" className="h-9 rounded-xl gap-2" asChild>
-                                    <a href={item.fileUrl} target="_blank" rel="noopener noreferrer">
-                                        <ExternalLink className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Lihat</span>
-                                    </a>
-                                </Button>
-                                <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:bg-destructive/10 rounded-xl" onClick={() => handleDelete(item.id, "produkHukum")}>
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                            </div>
-                        </div>
-                    ))
-                ) : (
-                    <div className="py-20 text-center border-2 border-dashed rounded-3xl text-muted-foreground">Belum ada arsip Produk Hukum.</div>
-                )}
-             </div>
+            <div className="flex items-center justify-between px-2">
+              <h3 className="font-black text-primary uppercase text-sm">Daftar Arsip Produk Hukum</h3>
+              <div className="relative w-48 md:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Cari nama/nomor/jenis..." className="pl-9 h-9 text-xs rounded-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid gap-3">
+              {isPhLoading ? (
+                <div className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary/30" /></div>
+              ) : filteredPh.length > 0 ? (
+                filteredPh.map((item) => (
+                  <div key={item.id} className="p-4 bg-white border rounded-2xl shadow-sm flex items-center justify-between gap-4 group hover:border-primary/50 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="h-10 w-10 rounded-xl bg-primary/5 flex items-center justify-center shrink-0">
+                        <Scale className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-sm truncate">{item.namaDokumen}</p>
+                        <p className="text-[10px] text-muted-foreground font-medium uppercase">{item.jenisDok} • {item.nomorDok}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" className="h-9 rounded-xl gap-2" asChild>
+                        <a href={item.fileUrl} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Lihat</span>
+                        </a>
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:bg-destructive/10 rounded-xl" onClick={() => handleDelete(item.id, "produkHukum")}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="py-20 text-center border-2 border-dashed rounded-3xl text-muted-foreground">Belum ada arsip Produk Hukum.</div>
+              )}
+            </div>
           </div>
         </TabsContent>
       </Tabs>

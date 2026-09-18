@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
@@ -42,7 +41,7 @@ const formatSeconds = (sec: number) => {
 
 export default function MonitoringAbsensiGrid() {
   const db = useFirestore()
-  const { user } = useUser()
+  const { user, isUserLoading } = useUser()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterMonth, setFilterMonth] = useState(format(new Date(), "MM"))
   const [filterYear, setFilterYear] = useState(format(new Date(), "yyyy"))
@@ -54,25 +53,24 @@ export default function MonitoringAbsensiGrid() {
     return () => clearInterval(timer)
   }, [])
 
-  const isAuthorized = user?.email?.toLowerCase() === "admin@cinangsi.id" || 
-                       user?.email?.toLowerCase() === "cinangsi@gmail.id" || 
-                       user?.email?.toLowerCase() === "cinangsi.gandrungmangu@gmail.com";
+  // Otorisasi dasar: Jika user ada, kita izinkan tarik data personel (Rules Firestore mengizinkan publik baca)
+  const canFetchData = !!(db && user && !isUserLoading);
 
   // Pengaturan Global
   const settingsRef = useMemoFirebase(() => 
-    (db && user && isAuthorized) ? doc(db, "absensi_settings", "global") : null, 
-  [db, user, isAuthorized])
-  const { data: settings, isLoading: isSettingsLoading } = useDoc(settingsRef)
+    canFetchData ? doc(db, "absensi_settings", "global") : null, 
+  [db, user, isUserLoading, canFetchData])
+  const { data: settings } = useDoc(settingsRef)
 
-  // Ambil Master Akun
+  // Ambil Master Akun dari koleksi 'personel' (yang diinput di Manajemen Akun)
   const personelRef = useMemoFirebase(() => 
-    (db && user && isAuthorized) ? query(collection(db, "personel"), orderBy("nama", "asc")) : null, 
-  [db, user, isAuthorized])
+    canFetchData ? query(collection(db, "personel"), orderBy("nama", "asc")) : null, 
+  [db, user, isUserLoading, canFetchData])
   const { data: personnelList, isLoading: isPersonelLoading } = useCollection(personelRef)
 
   // Ambil Data Absensi Bulan Terpilih
   const absensiRef = useMemoFirebase(() => {
-    if (!db || !user || !isAuthorized) return null;
+    if (!canFetchData) return null;
     const startDate = `${filterYear}-${filterMonth}-01`;
     const endDate = `${filterYear}-${filterMonth}-31`; 
     return query(
@@ -81,19 +79,20 @@ export default function MonitoringAbsensiGrid() {
         where("tanggal", "<=", endDate),
         orderBy("tanggal", "asc")
     );
-  }, [db, user, isAuthorized, filterMonth, filterYear])
+  }, [db, user, isUserLoading, canFetchData, filterMonth, filterYear])
   
   const { data: attendanceData, isLoading: isAttendanceLoading } = useCollection(absensiRef)
 
   const rekapGrid = useMemo(() => {
-    // FIX: Jangan return [] jika settings null, gunakan default agar data personel tetap muncul
+    // personnelList harus ada, tapi settings boleh null (pake default)
     if (!personnelList) return []
 
     const safeSettings = settings || {
-      hari_kerja: ['senin', 'selasa', 'rabu', 'kamis', 'jumat'],
-      hari_libur: [],
-      jam_masuk: "08:00",
-      toleransi_telat: 15
+        hari_kerja: ['senin', 'selasa', 'rabu', 'kamis', 'jumat'],
+        hari_libur: [],
+        jam_masuk: "08:00",
+        toleransi_telat: 15,
+        jadwal: {}
     };
 
     const workDays = safeSettings.hari_kerja || ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
@@ -173,8 +172,6 @@ export default function MonitoringAbsensiGrid() {
       })
   }, [personnelList, attendanceData, searchTerm, settings, filterMonth, filterYear, now])
 
-  if (!isAuthorized) return null;
-
   const tableHeaderDays = Array.from({ length: 31 }, (_, i) => i + 1);
 
   return (
@@ -248,7 +245,17 @@ export default function MonitoringAbsensiGrid() {
                         </tr>
                     </thead>
                     <tbody>
-                        {rekapGrid.length > 0 ? rekapGrid.map((row, idx) => (
+                        {rekapGrid.length === 0 ? (
+                            <tr>
+                                <td colSpan={38} className="py-20 text-center">
+                                    <div className="flex flex-col items-center gap-2 text-slate-400">
+                                        <AlertCircle className="h-8 w-8 opacity-20" />
+                                        <p className="text-xs font-black uppercase">Belum ada akun perangkat terdaftar</p>
+                                        <p className="text-[10px]">Silakan tambah akun di Pengaturan &gt; Manajemen Akun</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        ) : rekapGrid.map((row, idx) => (
                             <tr key={row.id} className={cn("hover:bg-slate-50 transition-colors border-b", !row.hasUid && "bg-amber-50/30")}>
                                 <td className="px-2 py-3 text-center font-bold text-slate-500 border-r">{idx + 1}</td>
                                 <td className="px-2 py-3 text-center font-mono font-black text-orange-600 border-r bg-orange-50/30">{formatSeconds(row.stats.totalLatenessSec)}</td>
@@ -300,13 +307,7 @@ export default function MonitoringAbsensiGrid() {
                                 <td className="text-center font-black bg-red-50 border-r border-slate-200 text-red-600">{row.stats.tk || 0}</td>
                                 <td className="text-center font-black bg-indigo-50 border-r border-slate-200 text-indigo-700">{row.stats.dl || 0}</td>
                             </tr>
-                        )) : (
-                          <tr>
-                            <td colSpan={tableHeaderDays.length + 7} className="py-20 text-center text-slate-400 italic">
-                                Belum ada data perangkat yang tersinkronisasi di database 'personel'.
-                            </td>
-                          </tr>
-                        )}
+                        ))}
                     </tbody>
                 </table>
                 )}

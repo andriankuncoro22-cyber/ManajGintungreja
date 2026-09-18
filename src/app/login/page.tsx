@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useEffect, useState } from "react"
@@ -6,40 +5,41 @@ import { useRouter } from "next/navigation"
 import { useAuth, useUser, useFirestore } from "@/firebase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Home, LogIn, Loader2, KeyRound, Mail, AlertCircle, ArrowLeft } from "lucide-react"
+import { Home, LogIn, Loader2, KeyRound, Mail, AlertCircle, ArrowLeft, Eye, EyeOff } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { signInWithEmailAndPassword, signOut } from "firebase/auth"
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth"
+import { doc, setDoc } from "firebase/firestore"
 import Link from "next/link"
 
 const loginSchema = z.object({
   email: z.string().email("Format email tidak valid."),
-  password: z.string().min(1, "Password harus diisi."),
+  password: z.string().min(6, "Password minimal 6 karakter."),
 })
 
 /**
  * Halaman Login Utama Manajemen Desa
- * KHUSUS ADMIN UTAMA
+ * KHUSUS AKUN PUSAT: gintungreja@gmail.id
  */
 export default function LoginPage() {
+  const { user, isUserLoading } = useUser()
   const auth = useAuth()
+  const db = useFirestore()
   const router = useRouter()
   const { toast } = useToast()
   const [isProcessing, setIsProcessing] = useState(false)
-  const [mounted, setMounted] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
-    // SELALU KELUAR (LOGOUT) SAAT MASUK KE HALAMAN INI
-    // Hal ini untuk memenuhi permintaan: "selalu memasukkan email dan password"
-    if (auth) {
-      signOut(auth).catch(() => {});
+    // Redirect jika sudah login sebagai admin pusat
+    if (user && !isUserLoading && user.email?.toLowerCase() === "gintungreja@gmail.id") {
+      router.push("/dashboard/");
     }
-  }, [auth])
+  }, [user, isUserLoading, router])
 
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
@@ -50,24 +50,42 @@ export default function LoginPage() {
   })
 
   async function onSubmit(values: z.infer<typeof loginSchema>) {
-    // PROTEKSI KETAT: Hanya satu email dan password yang boleh masuk
-    const ALLOWED_EMAIL = "cinangsi@gmail.id"
-    const ALLOWED_PASS = "cinangsi123"
-
-    if (values.email !== ALLOWED_EMAIL || values.password !== ALLOWED_PASS) {
-      toast({
-        variant: "destructive",
-        title: "Akses Ditolak",
-        description: "Hanya Admin Utama (Manajemen) yang diperbolehkan masuk ke sistem ini.",
-      })
-      return
-    }
-
+    if (!db || !auth) return
     setIsProcessing(true)
     try {
-      // Login ke Firebase Auth
-      await signInWithEmailAndPassword(auth, values.email, values.password)
-      
+      const allowedEmail = "gintungreja@gmail.id";
+      const allowedPass = "gintungreja123";
+
+      // 1. Hard Check Kredensial Manajemen
+      if (values.email.toLowerCase() !== allowedEmail || values.password !== allowedPass) {
+        throw new Error("Akses Ditolak: Hanya akun manajemen pusat yang diizinkan masuk ke sistem ini.");
+      }
+
+      // 2. Prosedur Auth Firebase
+      try {
+        await signInWithEmailAndPassword(auth, values.email, values.password)
+      } catch (authErr: any) {
+        // Jika akun belum terdaftar di Firebase Auth (Initial Run), daftarkan otomatis
+        if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-credential' || authErr.code === 'auth/wrong-password') {
+          // Jika ini adalah percobaan login pertama dengan gintungreja@gmail.id, buatkan akunnya
+          if (values.email.toLowerCase() === allowedEmail && values.password === allowedPass) {
+            const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password)
+            // Daftarkan di Firestore agar role admin terbaca global
+            await setDoc(doc(db, "users", userCredential.user.uid), {
+              id: userCredential.user.uid,
+              email: values.email.toLowerCase(),
+              name: "ADMINISTRATOR PUSAT",
+              role: "admin",
+              createdAt: new Date().toISOString()
+            }, { merge: true })
+          } else {
+            throw new Error("Email atau kata sandi manajemen salah.");
+          }
+        } else {
+          throw authErr
+        }
+      }
+
       toast({
         title: "Login Berhasil",
         description: "Selamat datang di Panel Manajemen Desa.",
@@ -78,14 +96,20 @@ export default function LoginPage() {
       toast({
         variant: "destructive",
         title: "Gagal Masuk",
-        description: "Terjadi kesalahan pada kredensial atau koneksi server.",
+        description: error.message || "Terjadi kesalahan saat memproses login.",
       })
     } finally {
       setIsProcessing(false)
     }
   }
 
-  if (!mounted) return null;
+  if (isUserLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4 bg-primary/5">
@@ -98,8 +122,8 @@ export default function LoginPage() {
             <Home className="text-primary-foreground h-10 w-10" />
           </div>
           <div className="space-y-1">
-            <CardTitle className="text-2xl font-black tracking-tighter uppercase text-primary leading-tight">MASUK SISTEM<br/>MANAJEMEN</CardTitle>
-            <CardDescription className="font-bold text-[10px] uppercase tracking-widest opacity-60">Pemerintah Desa Cinangsi</CardDescription>
+            <CardTitle className="text-2xl font-black tracking-tighter uppercase text-primary">MANAJEMEN PUSAT</CardTitle>
+            <CardDescription className="font-bold text-[10px] uppercase tracking-widest opacity-60 text-destructive">Akses Terbatas Administrator</CardDescription>
           </div>
         </CardHeader>
         <CardContent className="p-8 sm:p-10 space-y-6">
@@ -114,10 +138,10 @@ export default function LoginPage() {
                     <FormControl>
                       <div className="relative">
                         <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                          placeholder="cinangsi@gmail.id" 
-                          {...field} 
-                          className="h-12 rounded-xl pl-10 text-sm border-primary/10 bg-muted/30" 
+                        <Input
+                          placeholder="gintungreja@gmail.id"
+                          {...field}
+                          className="h-12 rounded-xl pl-10 text-sm border-primary/10 bg-muted/30"
                           autoComplete="off"
                         />
                       </div>
@@ -133,24 +157,37 @@ export default function LoginPage() {
                   <FormItem>
                     <FormLabel className="text-xs font-bold uppercase text-muted-foreground">Kata Sandi</FormLabel>
                     <FormControl>
-                       <div className="relative">
+                      <div className="relative">
                         <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                          type="password" 
-                          placeholder="******" 
-                          {...field} 
-                          className="h-12 rounded-xl pl-10 text-sm border-primary/10 bg-muted/30" 
+                        <Input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="******"
+                          {...field}
+                          className="h-12 rounded-xl pl-10 pr-10 text-sm border-primary/10 bg-muted/30"
                           autoComplete="new-password"
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none transition-colors p-1"
+                          tabIndex={-1}
+                          aria-label={showPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
                       </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <Button 
+              <Button
                 type="submit"
-                className="w-full h-14 text-base font-black uppercase gap-4 shadow-lg active:scale-95 transition-all rounded-2xl bg-primary hover:bg-primary/90 mt-4" 
+                className="w-full h-14 text-base font-black uppercase gap-4 shadow-lg active:scale-95 transition-all rounded-2xl bg-primary hover:bg-primary/90 mt-4"
                 disabled={isProcessing}
               >
                 {isProcessing ? (
@@ -158,17 +195,17 @@ export default function LoginPage() {
                 ) : (
                   <>
                     <LogIn className="h-5 w-5" />
-                    Masuk Sekarang
+                    Masuk Manajemen
                   </>
                 )}
               </Button>
             </form>
           </Form>
 
-          <div className="p-4 bg-muted/50 rounded-xl flex items-start gap-3 border border-dashed border-primary/20">
-            <AlertCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-            <p className="text-[10px] text-muted-foreground leading-relaxed font-bold uppercase">
-              Sistem ini memiliki otoritas terbatas. Hanya admin resmi yang dapat mengakses database utama desa.
+          <div className="p-4 bg-amber-50 rounded-xl flex items-start gap-3 border border-dashed border-amber-200">
+            <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-[10px] text-amber-700 leading-relaxed font-bold uppercase">
+              Halaman ini dikunci untuk Administrator Pusat Desa Gintungreja. Perangkat desa silakan gunakan Portal Absensi.
             </p>
           </div>
         </CardContent>

@@ -2,13 +2,13 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc } from "@/firebase"
+import { useFirestore, useCollection, useMemoFirebase, useUser, useDoc } from "@/firebase"
 import { collection, query, orderBy, doc } from "firebase/firestore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { 
-  Printer, 
-  FileSpreadsheet, 
+import {
+  Printer,
+  FileSpreadsheet,
   Loader2,
   FileText,
   ChevronRight,
@@ -25,48 +25,39 @@ export default function CetakDokumenAbsensi() {
   const db = useFirestore()
   const { user } = useUser()
   const { toast } = useToast()
-  
+
   const [filterMonth, setFilterMonth] = useState(format(new Date(), "MM"))
   const [filterYear, setFilterYear] = useState(format(new Date(), "yyyy"))
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
 
-  const isAuthorized = user?.email === "admin@cinangsi.id" || user?.email === "cinangsi@gmail.id" || user?.email === "cinangsi.gandrungmangu@gmail.com";
+  const isAuthorized = user?.email === "admin@gintungreja.id" || user?.email === "gintungreja@gmail.id" || user?.email === "desagintungreja1991@gmail.com";
 
   // 1. Ambil Data Desa (untuk Logo & Info)
   const villageRef = useMemoFirebase(() => (db && user && isAuthorized) ? doc(db, "settings", "village") : null, [db, user, isAuthorized])
   const { data: villageSettings } = useDoc(villageRef)
 
   // 2. Ambil Master Personel dari Database Akun
-  const personnelRef = useMemoFirebase(() => (db && user && isAuthorized) ? query(collection(db, "personel"), orderBy("nama", "asc")) : null, [db, user, isAuthorized])
+  const personnelRef = useMemoFirebase(() => (db && user && isAuthorized) ? collection(db, "personel") : null, [db, user, isAuthorized])
   const { data: personnelList, isLoading: isPersonnelLoading } = useCollection(personnelRef)
 
   // 3. Ambil Seluruh Data Absensi
-  const absensiRef = useMemoFirebase(() => 
-    (db && user && isAuthorized) ? query(collection(db, "absensi"), orderBy("tanggal", "asc")) : null, 
-  [db, user, isAuthorized])
+  const absensiRef = useMemoFirebase(() =>
+    (db && user && isAuthorized) ? query(collection(db, "absensi"), orderBy("tanggal", "asc")) : null,
+    [db, user, isAuthorized])
   const { data: attendanceData, isLoading: isAttendanceLoading } = useCollection(absensiRef)
 
   // 4. Ambil Pengaturan Absensi (Hari Kerja & Libur)
-  const settingsRef = useMemoFirebase(() => 
-    (db && user && isAuthorized) ? doc(db, "absensi_settings", "global") : null, 
-  [db, user, isAuthorized])
+  const settingsRef = useMemoFirebase(() =>
+    (db && user && isAuthorized) ? doc(db, "absensi_settings", "global") : null,
+    [db, user, isAuthorized])
   const { data: attendanceSettings, isLoading: isSettingsLoading } = useDoc(settingsRef)
 
   // 5. Logika Rekap Data Laporan & Alpha Otomatis
   const reportData = useMemo(() => {
-    // Perbaikan: Hanya personnelList yang wajib ada untuk mulai memproses baris
-    if (!personnelList) return []
+    if (!personnelList || !attendanceData || !attendanceSettings) return []
 
-    // Gunakan pengaturan default jika belum pernah disimpan oleh admin
-    const safeSettings = attendanceSettings || {
-      hari_kerja: ['senin', 'selasa', 'rabu', 'kamis', 'jumat'],
-      hari_libur: [],
-      jam_masuk: "08:00",
-      toleransi_telat: 15
-    };
-
-    const workDays = safeSettings.hari_kerja || ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
-    const holidays = safeSettings.hari_libur || [];
+    const workDays = attendanceSettings.hari_kerja || ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
+    const holidays = attendanceSettings.hari_libur || [];
     const daysInMonth = getDaysInMonth(new Date(parseInt(filterYear), parseInt(filterMonth) - 1));
     const todayStr = format(new Date(), "yyyy-MM-dd");
 
@@ -79,31 +70,29 @@ export default function CetakDokumenAbsensi() {
         const uid = p.uid || p.id;
 
         // Cari data absen yang cocok dengan personel ini di bulan terpilih
-        if (attendanceData && uid) {
-          const filteredAbsen = attendanceData.filter(a => {
-              const matchesId = a.personel_id === uid || a.id.startsWith(uid);
-              const matchesMonth = a.tanggal?.startsWith(`${filterYear}-${filterMonth}`);
-              return matchesId && matchesMonth;
-          })
+        const filteredAbsen = attendanceData.filter(a => {
+          const matchesId = a.personel_id === uid || a.id.startsWith(uid);
+          const matchesMonth = a.tanggal?.startsWith(`${filterYear}-${filterMonth}`);
+          return matchesId && matchesMonth;
+        })
 
-          // Masukkan data absen real ke dalam kalender bulan
-          filteredAbsen.forEach(a => {
-            const parts = a.tanggal.split('-');
-            if (parts.length === 3) {
-              const d = parseInt(parts[2]);
-              userMonthData[d] = a;
-            }
-          })
-        }
+        // Masukkan data absen real ke dalam kalender bulan
+        filteredAbsen.forEach(a => {
+          const parts = a.tanggal.split('-');
+          if (parts.length === 3) {
+            const d = parseInt(parts[2]);
+            userMonthData[d] = a;
+          }
+        })
 
         // Cek setiap tanggal untuk Alpha Otomatis
         for (let d = 1; d <= daysInMonth; d++) {
           const dateStr = `${filterYear}-${filterMonth}-${d.toString().padStart(2, '0')}`;
-          
+
           if (!userMonthData[d]) {
             const checkDate = new Date(parseInt(filterYear), parseInt(filterMonth) - 1, d);
             const dayName = ['minggu', 'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'][checkDate.getDay()];
-            
+
             // Jika hari kerja, bukan hari libur manual, dan di masa lalu/hari ini
             if (dateStr <= todayStr && workDays.includes(dayName) && !holidays.includes(dateStr)) {
               userMonthData[d] = { status: 'alpha' };
@@ -113,9 +102,9 @@ export default function CetakDokumenAbsensi() {
           // Hitung Statistik
           const record = userMonthData[d];
           if (record) {
-            // Logika: Jika masuk tapi tidak pulang, anggap telat/incomplete (T)
+            // Logika baru: Jika masuk tapi tidak pulang, anggap telat/incomplete (T)
             const isStillWorking = record.jam_masuk && !record.jam_pulang && record.status !== 'alpha' && record.status !== 'izin' && record.status !== 'dinas_luar';
-            
+
             if (record.status === 'izin') s++;
             else if (record.status === 'alpha') tk++;
             else if (record.status === 'dinas_luar') dl++;
@@ -139,7 +128,7 @@ export default function CetakDokumenAbsensi() {
 
     const daysInMonth = getDaysInMonth(new Date(parseInt(filterYear), parseInt(filterMonth) - 1))
     const monthName = format(new Date(2024, parseInt(filterMonth) - 1, 1), "MMMM", { locale: localeID }).toUpperCase()
-    
+
     const excelRows = reportData.map((row, idx) => {
       const data: any = {
         "NO": idx + 1,
@@ -189,7 +178,7 @@ export default function CetakDokumenAbsensi() {
         year: filterYear,
         data: reportData,
         logoBase64: villageSettings?.logoBase64,
-        settings: attendanceSettings 
+        settings: attendanceSettings
       })
       const url = URL.createObjectURL(pdfBlob)
       const link = document.createElement('a')
@@ -206,7 +195,7 @@ export default function CetakDokumenAbsensi() {
 
   if (!isAuthorized) return <div className="p-10 text-center font-bold">Akses Ditolak</div>;
 
-  const isLoading = isPersonnelLoading || isAttendanceLoading;
+  const isLoading = isPersonnelLoading || isAttendanceLoading || isSettingsLoading;
 
   return (
     <div className="max-w-4xl mx-auto space-y-10">
@@ -237,7 +226,7 @@ export default function CetakDokumenAbsensi() {
                 </SelectTrigger>
                 <SelectContent>
                   {Array.from({ length: 12 }).map((_, i) => (
-                    <SelectItem key={i+1} value={(i+1).toString().padStart(2, '0')} className="font-bold">
+                    <SelectItem key={i + 1} value={(i + 1).toString().padStart(2, '0')} className="font-bold">
                       {format(new Date(2024, i, 1), "MMMM", { locale: localeID })}
                     </SelectItem>
                   ))}
@@ -261,19 +250,19 @@ export default function CetakDokumenAbsensi() {
 
           <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center justify-between">
             <div className="flex items-center gap-4">
-               <FileText className="h-10 w-10 text-slate-300" />
-               <div>
-                  <p className="text-xs font-black uppercase text-slate-900">Kesiapan Data</p>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase">
-                    {isLoading ? "Sinkronisasi..." : `${reportData.length} Akun Terdeteksi`}
-                  </p>
-               </div>
+              <FileText className="h-10 w-10 text-slate-300" />
+              <div>
+                <p className="text-xs font-black uppercase text-slate-900">Kesiapan Data</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase">
+                  {isLoading ? "Sinkronisasi..." : `${reportData.length} Akun Terdeteksi`}
+                </p>
+              </div>
             </div>
             {isLoading ? <Loader2 className="h-5 w-5 animate-spin text-primary/30" /> : <ChevronRight className="h-5 w-5 text-slate-200" />}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Button 
+            <Button
               onClick={handleDownloadPDF}
               disabled={isGeneratingPDF || isLoading || reportData.length === 0}
               className="h-20 rounded-[1.5rem] bg-primary hover:bg-primary/90 shadow-xl shadow-primary/20 text-white font-black uppercase text-sm gap-4 transition-all active:scale-95"
@@ -281,7 +270,7 @@ export default function CetakDokumenAbsensi() {
               {isGeneratingPDF ? <Loader2 className="h-6 w-6 animate-spin" /> : <Printer className="h-6 w-6" />}
               Unduh Laporan PDF
             </Button>
-            <Button 
+            <Button
               onClick={handleDownloadExcel}
               disabled={isLoading || reportData.length === 0}
               variant="outline"
