@@ -267,8 +267,8 @@ export const addKopSuratSync = (doc: jsPDF, img: HTMLImageElement | null, margin
   doc.text("DESA GINTUNGREJA", pageWidth / 2 + 10, 27, { align: "center" });
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
-  doc.text("Jalan Raya Pelita KM 5 Gintungreja, Kec. Gandrungmangu, Cilacap, Jawa Tengah,", pageWidth / 2 + 10, 31, { align: "center" });
-  doc.text("Tlp. 0852-2770-6666, Laman : www.gintungreja-cilacap.desa.id, Pos-el : www.desagintungreja1991@gmail.com", pageWidth / 2 + 10, 35, { align: "center" });
+  doc.text("Jl. Suryo Hadikusumo No.01, Gintungreja, Kec. Gandrungmangu, Cilacap, Jawa Tengah,", pageWidth / 2 + 10, 31, { align: "center" });
+  doc.text("Tlp. 0882-0052-69185, Laman : www.gintungreja.id, Pos-el : desagintungreja1991@gmail.com", pageWidth / 2 + 10, 35, { align: "center" });
   doc.setFont("helvetica", "bold");
   doc.text("Kode Pos 53254", pageWidth - margin, 38.5, { align: "right" });
   doc.setLineWidth(0.8);
@@ -464,10 +464,10 @@ export function PrintLayout({
                     DESA GINTUNGREJA
                   </h2>
                   <p className="text-[8.5pt] font-normal text-black m-0 p-0 leading-tight mt-[0.5mm]">
-                    Jalan Raya Pelita KM 5 Gintungreja, Kec. Gandrungmangu, Cilacap, Jawa Tengah,
+                    Jl. Suryo Hadikusumo No.01, Gintungreja, Kec. Gandrungmangu, Cilacap, Jawa Tengah,
                   </p>
                   <p className="text-[8.5pt] font-normal text-black m-0 p-0 leading-tight mt-[0.5mm]">
-                    Tlp. 0852-2770-6666, Laman : www.gintungreja-cilacap.desa.id, Pos-el : www.desagintungreja1991@gmail.com
+                    Tlp. 0882-0052-69185, Laman : www.gintungreja.id, Pos-el : desagintungreja1991@gmail.com
                   </p>
                 </div>
               </div>

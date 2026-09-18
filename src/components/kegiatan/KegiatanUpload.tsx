@@ -294,17 +294,58 @@ Instruksi Penulisan:
    - Paragraf 2: Inti pembahasan, jalannya diskusi, atau poin-poin penting yang dikemukakan dalam pertemuan.
    - Paragraf terakhir: Kesimpulan, rencana tindak lanjut, dan penutupan kegiatan.`;
 
-      const response = await callAppsScript({
-        action: "askAI",
-        prompt: prompt,
-      });
+      let textResult = "";
 
-      if (response && response.success && response.text) {
-        form.setValue("description", response.text, { shouldDirty: true, shouldValidate: true });
-        toast({ title: "AI Berhasil", description: "Draf notulen telah dibuat." });
-      } else {
-        throw new Error(response?.error || "Layanan AI tidak memberikan respon.");
+      // 1. Coba panggil Google Apps Script dengan apiKey
+      try {
+        const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
+        const response = await callAppsScript({
+          action: "askAI",
+          prompt: prompt,
+          apiKey: apiKey
+        });
+
+        if (response && response.success && response.text) {
+          textResult = response.text;
+        }
+      } catch (scriptErr) {
+        console.warn("Apps Script AI call warning, using direct Gemini API fallback:", scriptErr);
       }
+
+      // 2. Fallback langsung ke Google Generative Language API jika Apps Script belum di-redeploy
+      if (!textResult) {
+        const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
+        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
+        
+        let lastError = "";
+        for (const model of candidateModels) {
+          try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }]
+              })
+            });
+            const data = await res.json();
+            if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+              textResult = data.candidates[0].content.parts[0].text;
+              break;
+            } else if (data.error?.message) {
+              lastError = data.error.message;
+            }
+          } catch (fetchErr: any) {
+            lastError = fetchErr.message;
+          }
+        }
+
+        if (!textResult) {
+          throw new Error(lastError || "Layanan AI tidak memberikan respon.");
+        }
+      }
+
+      form.setValue("description", textResult, { shouldDirty: true, shouldValidate: true });
+      toast({ title: "AI Berhasil", description: "Draf notulen telah dibuat." });
     } catch (e: any) {
       toast({ variant: "destructive", title: "Gagal AI", description: e.message || "Layanan AI tidak tersedia." });
     } finally {

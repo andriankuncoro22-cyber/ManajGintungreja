@@ -1,17 +1,39 @@
 /**
- * BACKEND GOOGLE APPS SCRIPT - DESA DIGITAL
- * Versi 3.0: Menambahkan kemampuan untuk mengambil data kalender dan memperbarui deskripsi acara (notulensi).
- * Logika Terpadu: Agenda, Arsip, Google Drive, & Google Kalender.
+ * =================================================================================
+ * BACKEND GOOGLE APPS SCRIPT - DESA DIGITAL (VERSI 7.5 - STABLE CALENDAR & GEMINI AI)
+ * =================================================================================
+ * 
+ * PETUNJUK DEPLOY (WAJIB):
+ * 1. Klik ikon '+' di sebelah "Services" -> Tambahkan: Google Calendar API & Google Drive API.
+ * 2. Ganti seluruh isi kode dengan kode ini.
+ * 3. Klik "Run" pada fungsi 'forceGrantAllPermissions' untuk Otorisasi.
+ * 4. Klik "Deploy" -> "Manage deployments" -> Klik ikon Pensil (Edit) -> Pilih Versi: "New version" -> Deploy.
+ * 5. Execute as: Me | Who has access: Anyone (SIAPA SAJA).
+ * 
+ * =================================================================================
  */
 
-// --- FUNGSI UTAMA UNTUK MENERIMA PERINTAH DARI APLIKASI ---
+const GEMINI_API_KEY = ""; // Masukkan GEMINI_API_KEY Anda di sini jika tidak dikirim via payload data.apiKey
+
 function doPost(e) {
   try {
+    if (!e || !e.postData || !e.postData.contents) {
+      throw new Error("Tidak ada data yang diterima.");
+    }
+
     const data = JSON.parse(e.postData.contents);
     const action = data.action;
     let result;
 
     switch (action) {
+      case 'saveToDrive':
+        result = handleSaveToDrive(data);
+        break;
+
+      case 'askAI':
+        result = handleAskAI(data);
+        break;
+      
       case 'createEventAndUpload':
         result = handleCreateEventAndUpload(data);
         break;
@@ -28,6 +50,10 @@ function doPost(e) {
         result = handleUpdateDescription(data);
         break;
 
+      case 'generateNumber':
+        result = handleGenerateNumber(data);
+        break;
+
       default:
         throw new Error("Aksi tidak dikenal: " + action);
     }
@@ -36,163 +62,305 @@ function doPost(e) {
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
-    console.error('doPost Error: ' + error.toString() + "\n" + error.stack);
-    return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Apps Script Error: " + error.message }))
+    console.error('doPost Error: ' + error.toString());
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Script Error: " + error.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
 /**
- * FUNGSI BARU: Mengambil acara dari kalender pada tanggal tertentu.
+ * Menyimpan laporan kegiatan ke Drive dengan proteksi Folder ID.
  */
-function handleGetCalendar(data) {
-  const { calendarId, date } = data;
-  if (!calendarId || !date) {
-    throw new Error("calendarId dan tanggal diperlukan.");
+function handleSaveToDrive(data) {
+  const { folderName, parentFolderId, files } = data;
+  let parentFolder;
+  
+  try {
+    parentFolder = DriveApp.getFolderById(parentFolderId);
+  } catch (e) {
+    parentFolder = DriveApp.getRootFolder();
   }
 
-  try {
-    const targetDate = new Date(date);
-    const timeMin = targetDate.toISOString();
-    const timeMax = new Date(targetDate.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const newFolder = parentFolder.createFolder(folderName);
+  const fileUrls = { photos: [], materials: [] };
 
-    const response = Calendar.Events.list(calendarId, {
-      timeMin: timeMin,
-      timeMax: timeMax,
-      singleEvents: true,
-      orderBy: 'startTime'
+  const saveFile = (fileInfo, folder) => {
+    if (!fileInfo || !fileInfo.base64) return null;
+    const decoded = Utilities.base64Decode(fileInfo.base64);
+    const blob = Utilities.newBlob(decoded, fileInfo.type, fileInfo.name);
+    const file = folder.createFile(blob);
+    return file.getUrl();
+  };
+
+  if (files.photos) {
+    files.photos.forEach(photo => {
+      const url = saveFile(photo, newFolder);
+      if (url) fileUrls.photos.push(url);
     });
-
-    return { items: response.items };
-  } catch (e) {
-    throw new Error('Gagal mengambil acara dari Kalender: ' + e.message);
   }
-}
-
-/**
- * FUNGSI BARU: Memperbarui deskripsi acara untuk menyimpan notulensi.
- */
-function handleUpdateDescription(data) {
-  const { calendarId, eventId, newContent } = data;
-  if (!calendarId || !eventId || newContent === undefined) {
-    throw new Error("calendarId, eventId, dan newContent diperlukan.");
+  
+  if (files.materials) {
+    files.materials.forEach(material => {
+      const url = saveFile(material, newFolder);
+      if (url) fileUrls.materials.push(url);
+    });
   }
+  
+  fileUrls.undangan = saveFile(files.undangan, newFolder);
+  fileUrls.notulen = saveFile(files.notulen, newFolder);
+  fileUrls.bast = saveFile(files.bast, newFolder);
 
-  try {
-    // 1. Ambil event yang ada
-    const event = Calendar.Events.get(calendarId, eventId);
-    let description = event.description || "";
-
-    // 2. Hapus notulensi lama jika ada
-    const separator = "\n\n--- NOTULENSI ---";
-    const oldNotulensiIndex = description.indexOf(separator);
-    if (oldNotulensiIndex !== -1) {
-      description = description.substring(0, oldNotulensiIndex);
-    }
-
-    // 3. Tambahkan notulensi baru
-    const finalDescription = description.trim() + separator + "\n" + newContent.trim();
-
-    // 4. Buat payload update
-    const updatedEvent = {
-      description: finalDescription
-    };
-
-    // 5. Kirim pembaruan
-    const result = Calendar.Events.patch(updatedEvent, calendarId, eventId);
-    
-    return { message: "Deskripsi acara berhasil diperbarui.", updatedEvent: result };
-  } catch (e) {
-    throw new Error('Gagal memperbarui deskripsi acara: ' + e.message);
-  }
-}
-
-
-/**
- * Menangani unggahan file arsip ke Google Drive.
- */
-function handleArchiveUpload(data) {
-  const { fileData, fileName, folderId } = data;
-
-  if (!fileData || !fileData.base64 || !fileName || !folderId) {
-    throw new Error("Data arsip tidak lengkap.");
-  }
-
-  try {
-    const decoded = Utilities.base64Decode(fileData.base64);
-    const blob = Utilities.newBlob(decoded, fileData.type, fileName);
-    const targetFolder = DriveApp.getFolderById(folderId);
-    const newFile = targetFolder.createFile(blob);
-    
-    return {
-      message: "File berhasil diarsipkan.",
-      fileUrl: newFile.getUrl(),
-      fileId: newFile.getId()
-    };
-  } catch (e) {
-    throw new Error('Gagal unggah arsip ke Drive: ' + e.message);
-  }
-}
-
-
-/**
- * Membuat acara di Google Calendar & mengunggah file ke Google Drive.
- */
-function handleCreateEventAndUpload(data) {
-  const { eventData, fileData, folderId } = data;
-  let fileUrl = null;
-  let eventUrl = null;
-
-  if (!eventData || !eventData.calendarId || !eventData.title || !folderId) {
-    throw new Error("Data tidak lengkap.");
-  }
-
-  if (fileData && fileData.base64) {
-    try {
-      const decoded = Utilities.base64Decode(fileData.base64);
-      const blob = Utilities.newBlob(decoded, fileData.type, fileData.name);
-      const targetFolder = DriveApp.getFolderById(folderId);
-      const newFile = targetFolder.createFile(blob);
-      fileUrl = newFile.getUrl();
-    } catch (e) {
-      throw new Error('Gagal unggah ke Drive: ' + e.message);
-    }
-  }
-
-  try {
-    const finalDescription = (eventData.description || '') + (fileUrl ? `\n\n🔗 Link Undangan: ${fileUrl}` : '');
-
-    const eventResource = {
-      summary: eventData.title,
-      location: eventData.location,
-      description: finalDescription,
-      start: { dateTime: eventData.start, timeZone: 'Asia/Jakarta' },
-      end: { dateTime: eventData.end, timeZone: 'Asia/Jakarta' },
-      reminders: { 'useDefault': false, 'overrides': [{'method': 'popup', 'minutes': 60}, {'method': 'email', 'minutes': 1440}] }
-    };
-    
-    const createdEvent = Calendar.Events.insert(eventResource, eventData.calendarId);
-    eventUrl = createdEvent.htmlLink;
-
-  } catch (e) {
-    throw new Error('Gagal buat acara Kalender: ' + e.message);
-  }
-
-  return { 
-    message: 'Agenda berhasil disimpan.',
-    eventUrl: eventUrl,
-    fileUrl: fileUrl
+  return {
+    folderId: newFolder.getId(),
+    fileUrls: fileUrls
   };
 }
 
 /**
- * FUNGSI DIAGNOSTIK: Jalankan fungsi ini secara manual untuk otorisasi.
+ * Membuat event kalender dan upload file dengan fallback folder.
  */
-function forceGrantAllPermissions() {
+function handleCreateEventAndUpload(data) {
+  const { eventData, fileData, folderId } = data;
+  let fileUrl = null;
+  
+  if (fileData && fileData.base64) {
+    try {
+      let targetFolder;
+      try {
+        targetFolder = DriveApp.getFolderById(folderId);
+      } catch (e) {
+        targetFolder = DriveApp.getRootFolder();
+      }
+      
+      const decoded = Utilities.base64Decode(fileData.base64);
+      const blob = Utilities.newBlob(decoded, fileData.type, fileData.name);
+      fileUrl = targetFolder.createFile(blob).getUrl();
+    } catch (e) {
+      throw new Error("Gagal akses Drive: " + e.message);
+    }
+  }
+
+  const startTime = new Date(eventData.start);
+  const endTime = new Date(eventData.end);
+  const fullDesc = (eventData.description || '') + (fileUrl ? `\n\n🔗 Link Undangan: ${fileUrl}` : '');
+
+  // 1. Coba gunakan CalendarApp bawaan (Tidak butuh aktivasi Advanced Google Service)
   try {
-    Calendar.Events.list('primary');
-    DriveApp.getRootFolder();
+    let cal = null;
+    const targetCalId = eventData.calendarId;
+    if (targetCalId && targetCalId !== "primary" && targetCalId.includes("@")) {
+      try {
+        cal = CalendarApp.getCalendarById(targetCalId);
+      } catch (err) {}
+    }
+    if (!cal) {
+      cal = CalendarApp.getDefaultCalendar();
+    }
+
+    if (cal) {
+      const createdEvent = cal.createEvent(eventData.title, startTime, endTime, {
+        description: fullDesc,
+        location: eventData.location || ''
+      });
+      return { 
+        eventUrl: "https://calendar.google.com/calendar/r", 
+        eventId: createdEvent.getId(),
+        fileUrl: fileUrl 
+      };
+    }
+  } catch (calAppErr) {
+    console.warn("CalendarApp warning, mencoba Advanced Calendar:", calAppErr);
+  }
+
+  // 2. Fallback ke Advanced Service Calendar jika aktif
+  if (typeof Calendar !== 'undefined' && Calendar.Events) {
+    const eventResource = {
+      summary: eventData.title,
+      location: eventData.location,
+      description: fullDesc,
+      start: { dateTime: eventData.start, timeZone: 'Asia/Jakarta' },
+      end: { dateTime: eventData.end, timeZone: 'Asia/Jakarta' }
+    };
+    try {
+      const createdEvent = Calendar.Events.insert(eventResource, eventData.calendarId || "primary");
+      return { eventUrl: createdEvent.htmlLink, fileUrl: fileUrl };
+    } catch (e) {
+      throw new Error("Gagal akses Kalender: " + e.message);
+    }
+  }
+
+  throw new Error("Gagal akses Kalender: Kalender tidak dapat diakses atau izin belum diberikan.");
+}
+
+function handleGenerateNumber(data) {
+  const randomNum = Math.floor(100 + Math.random() * 900);
+  const year = new Date().getFullYear();
+  const docNumber = `090/${randomNum}/SPPD/${year}`;
+  return { docNumber: docNumber };
+}
+
+function handleAskAI(data) {
+  const prompt = data.prompt;
+  const apiKey = data.apiKey || GEMINI_API_KEY;
+  const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
+  
+  let lastError = null;
+  for (let i = 0; i < candidateModels.length; i++) {
+    const model = candidateModels[i];
+    try {
+      const url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey;
+      const payload = { "contents": [{ "parts": [{ "text": prompt }] }] };
+      const options = {
+        'method': 'post',
+        'contentType': 'application/json',
+        'payload': JSON.stringify(payload),
+        'muteHttpExceptions': true
+      };
+      const response = UrlFetchApp.fetch(url, options);
+      const code = response.getResponseCode();
+      const text = response.getContentText();
+      const result = JSON.parse(text);
+
+      if (code === 200 && result.candidates && result.candidates.length > 0) {
+        return { text: result.candidates[0].content.parts[0].text };
+      } else if (result.error) {
+        lastError = result.error.message || ("HTTP " + code);
+      }
+    } catch (e) {
+      lastError = e.message;
+    }
+  }
+
+  throw new Error(lastError || "Gagal memproses permintaan AI.");
+}
+
+function handleGetCalendar(data) {
+  try {
+    const { calendarId, date } = data;
+    const targetDate = new Date(date);
+    if (isNaN(targetDate.getTime())) throw new Error("Format tanggal tidak valid.");
+    
+    const startTime = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0);
+    const endTime = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 1, 0, 0, 0);
+    
+    // 1. Gunakan CalendarApp bawaan (Aman dan tidak butuh Advanced Service)
+    let cal = null;
+    if (calendarId && calendarId !== "primary" && calendarId.includes("@")) {
+      try {
+        cal = CalendarApp.getCalendarById(calendarId);
+      } catch (e) {}
+    }
+    if (!cal) {
+      cal = CalendarApp.getDefaultCalendar();
+    }
+    
+    if (cal) {
+      const events = cal.getEvents(startTime, endTime);
+      const items = events.map(function(ev) {
+        return {
+          id: ev.getId(),
+          summary: ev.getTitle(),
+          description: ev.getDescription() || "",
+          location: ev.getLocation() || "",
+          start: { dateTime: ev.getStartTime().toISOString() },
+          end: { dateTime: ev.getEndTime().toISOString() }
+        };
+      });
+      return { items: items };
+    }
+
+    // 2. Fallback jika Advanced Service Calendar aktif
+    if (typeof Calendar !== 'undefined' && Calendar.Events) {
+      const calId = (calendarId && calendarId.includes("@")) ? calendarId : "primary";
+      const response = Calendar.Events.list(calId, { 
+        timeMin: startTime.toISOString(), 
+        timeMax: endTime.toISOString(), 
+        singleEvents: true, 
+        orderBy: 'startTime' 
+      });
+      return { items: response.items || [] };
+    }
+    
+    return { items: [] };
+  } catch (err) {
+    throw new Error("Gagal mengambil agenda: " + err.message);
+  }
+}
+
+function handleUpdateDescription(data) {
+  const { calendarId, eventId, newContent } = data;
+  const separator = "\n\n--- NOTULENSI ---";
+
+  // 1. Coba dengan CalendarApp bawaan
+  let cal = null;
+  if (calendarId && calendarId !== "primary" && calendarId.includes("@")) {
+    try {
+      cal = CalendarApp.getCalendarById(calendarId);
+    } catch (e) {}
+  }
+  if (!cal) {
+    cal = CalendarApp.getDefaultCalendar();
+  }
+
+  if (cal) {
+    try {
+      const ev = cal.getEventById(eventId);
+      if (ev) {
+        let description = (ev.getDescription() || "").split(separator)[0];
+        const finalDescription = description.trim() + separator + "\n" + newContent.trim();
+        ev.setDescription(finalDescription);
+        return { message: "Notulensi disimpan." };
+      }
+    } catch (err) {
+      console.warn("CalendarApp update error:", err);
+    }
+  }
+
+  // 2. Fallback ke Advanced Calendar
+  if (typeof Calendar !== 'undefined' && Calendar.Events) {
+    try {
+      const calId = (calendarId && calendarId.includes("@")) ? calendarId : "primary";
+      const event = Calendar.Events.get(calId, eventId);
+      let description = (event.description || "").split(separator)[0];
+      const finalDescription = description.trim() + separator + "\n" + newContent.trim();
+      Calendar.Events.patch({ description: finalDescription }, calId, eventId);
+      return { message: "Notulensi disimpan." };
+    } catch (e) {
+      throw new Error("Gagal update event: " + e.message);
+    }
+  }
+
+  return { message: "Event tidak ditemukan." };
+}
+
+function handleArchiveUpload(data) {
+  const { fileData, fileName, folderId } = data;
+  let targetFolder;
+  try {
+    targetFolder = DriveApp.getFolderById(folderId);
   } catch (e) {
-    console.error('Gagal saat meminta izin: ' + e.message);
+    targetFolder = DriveApp.getRootFolder();
+  }
+  
+  const decoded = Utilities.base64Decode(fileData.base64);
+  const blob = Utilities.newBlob(decoded, fileData.type, fileName);
+  const file = targetFolder.createFile(blob);
+  return { fileUrl: file.getUrl(), fileId: file.getId() };
+}
+
+function forceGrantAllPermissions() {
+  const root = DriveApp.getRootFolder();
+  Logger.log("Akses Drive OK: " + root.getName());
+  const cal = CalendarApp.getDefaultCalendar();
+  Logger.log("Akses Kalender OK: " + (cal ? cal.getName() : "None"));
+  if (typeof Calendar !== 'undefined' && Calendar.Events) {
+    try {
+      Calendar.Events.list("primary", {maxResults: 1});
+      Logger.log("API Advanced Calendar OK");
+    } catch (e) {
+      Logger.log("API Advanced Calendar ERROR: " + e.message);
+    }
+  } else {
+    Logger.log("Menggunakan CalendarApp bawaan (Aman, tidak memerlukan Advanced Service).");
   }
 }

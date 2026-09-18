@@ -47,8 +47,8 @@ export const generateAttendancePDF = async (report: AttendanceReportData): Promi
     doc.text("DESA GINTUNGREJA", pageWidth / 2, 25, { align: "center" });
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
-    doc.text("Jalan Raya Pelita KM 5 Gintungreja, Kec. Gandrungmangu, Cilacap, Jawa Tengah,", pageWidth / 2, 29, { align: "center" });
-    doc.text("Tlp. 0852-2770-6666, Laman : www.gintungreja-cilacap.desa.id, Pos-el : www.desagintungreja1991@gmail.com", pageWidth / 2, 33, { align: "center" });
+    doc.text("Jl. Suryo Hadikusumo No.01, Gintungreja, Kec. Gandrungmangu, Cilacap, Jawa Tengah,", pageWidth / 2, 29, { align: "center" });
+    doc.text("Tlp. 0882-0052-69185, Laman : www.gintungreja.id, Pos-el : desagintungreja1991@gmail.com", pageWidth / 2, 33, { align: "center" });
     doc.setLineWidth(0.5);
     doc.line(margin, 35, pageWidth - margin, 35);
     doc.setLineWidth(0.1);

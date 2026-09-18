@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * =================================================================================
  * BACKEND GOOGLE APPS SCRIPT - DESA DIGITAL (VERSI 7.5 - STABLE CALENDAR)
@@ -13,7 +14,7 @@
  * =================================================================================
  */
 
-const GEMINI_API_KEY = "AIzaSyC14sMFsIWhjaZHEv8BzMyAQJtYqUxp6Xo"; 
+const GEMINI_API_KEY = ""; // Masukkan GEMINI_API_KEY Anda di sini jika tidak dikirim via payload data.apiKey
 
 function doPost(e) {
   try {
@@ -200,13 +201,38 @@ function handleGenerateNumber(data) {
 }
 
 function handleAskAI(data) {
-  const { prompt } = data;
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GEMINI_API_KEY;
-  const payload = { "contents": [{ "parts": [{ "text": prompt }] }] };
-  const options = { 'method': 'post', 'contentType': 'application/json', 'payload': JSON.stringify(payload) };
-  const response = UrlFetchApp.fetch(url, options);
-  const result = JSON.parse(response.getContentText());
-  return { text: result.candidates[0].content.parts[0].text };
+  const prompt = data.prompt;
+  const apiKey = data.apiKey || GEMINI_API_KEY;
+  const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
+  
+  let lastError = null;
+  for (let i = 0; i < candidateModels.length; i++) {
+    const model = candidateModels[i];
+    try {
+      const url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey;
+      const payload = { "contents": [{ "parts": [{ "text": prompt }] }] };
+      const options = {
+        'method': 'post',
+        'contentType': 'application/json',
+        'payload': JSON.stringify(payload),
+        'muteHttpExceptions': true
+      };
+      const response = UrlFetchApp.fetch(url, options);
+      const code = response.getResponseCode();
+      const text = response.getContentText();
+      const result = JSON.parse(text);
+
+      if (code === 200 && result.candidates && result.candidates.length > 0) {
+        return { text: result.candidates[0].content.parts[0].text };
+      } else if (result.error) {
+        lastError = result.error.message || ("HTTP " + code);
+      }
+    } catch (e) {
+      lastError = e.message;
+    }
+  }
+
+  throw new Error(lastError || "Gagal memproses permintaan AI.");
 }
 
 function handleGetCalendar(data) {
