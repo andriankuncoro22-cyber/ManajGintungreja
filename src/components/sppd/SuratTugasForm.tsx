@@ -56,6 +56,14 @@ export function SuratTugasForm() {
   
   const { data: userData } = useDoc(userDocRef)
 
+  // Ambil logo desa dari pengaturan global (/settings/)
+  const villageSettingsRef = useMemoFirebase(() => {
+    if (!db || !user) return null
+    return doc(db, "settings", "village")
+  }, [db, user])
+
+  const { data: villageSettings } = useDoc(villageSettingsRef)
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -117,7 +125,8 @@ export function SuratTugasForm() {
 
     setIsGenerating(true)
     try {
-      const pdfBlob = await generateSuratTugasPDF(values, userData?.logoBase64)
+      const logoToUse = villageSettings?.logoBase64 || userData?.logoBase64
+      const pdfBlob = await generateSuratTugasPDF(values, logoToUse)
       const url = URL.createObjectURL(pdfBlob)
       window.open(url, "_blank")
       toast({ title: "Berhasil", description: "Surat tugas telah dibuat." })

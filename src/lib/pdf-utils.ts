@@ -57,12 +57,27 @@ const hitungLamaHari = (mulai: string, selesai: string): number => {
   return Math.floor((utcEnd - utcStart) / (1000 * 60 * 60 * 24)) + 1;
 };
 
+export const getLogoSource = (logoBase64?: string | null): string => {
+  if (!logoBase64 || logoBase64.length < 50) return LOGO_CILACAP_FALLBACK;
+  if (logoBase64.startsWith("data:image") || logoBase64.startsWith("http://") || logoBase64.startsWith("https://") || logoBase64.startsWith("/")) {
+    return logoBase64;
+  }
+  return `data:image/png;base64,${logoBase64}`;
+};
+
 export const loadImage = (url: string): Promise<HTMLImageElement | null> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+    const timer = setTimeout(() => resolve(null), 5000);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(img);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      resolve(null);
+    };
     img.src = url;
   });
 }
@@ -787,7 +802,7 @@ export const generateSuratTugasPDF = async (values: any, logoBase64?: string | n
   const contentWidth = pageWidth - margin * 2;
   const d = values.startDate ? new Date(values.startDate) : new Date();
   let currentY = 75;
-  const logoSource = logoBase64 && logoBase64.length > 50 && logoBase64.startsWith("data:image") ? logoBase64 : LOGO_CILACAP_FALLBACK;
+  const logoSource = getLogoSource(logoBase64);
   const logoImg = await loadImage(logoSource);
   const ensurePageSpace = (neededHeight = 20) => {
     if (currentY + neededHeight > pageHeight - margin) {
@@ -926,7 +941,7 @@ export const generateSPPDPDF = async (values: any, logoBase64?: string | null): 
   const contentWidth = pageWidth - (margin * 2);
   const d = values.startDate ? new Date(values.startDate) : new Date();
   const midX = pageWidth / 2;
-  const logoSource = (logoBase64 && logoBase64.length > 50 && logoBase64.startsWith('data:image')) ? logoBase64 : LOGO_CILACAP_FALLBACK;
+  const logoSource = getLogoSource(logoBase64);
   const logoImg = await loadImage(logoSource);
   addKopSuratSync(doc, logoImg, margin, pageWidth);
   doc.setFontSize(9);

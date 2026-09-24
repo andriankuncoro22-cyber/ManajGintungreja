@@ -32,6 +32,14 @@ export function SppdCetakForm() {
   
   const { data: userData } = useDoc(userDocRef)
 
+  // Ambil pengaturan desa global untuk logo kop surat
+  const villageSettingsRef = useMemoFirebase(() => {
+    if (!db || !user) return null
+    return doc(db, "settings", "village")
+  }, [db, user])
+
+  const { data: villageSettings } = useDoc(villageSettingsRef)
+
   const sppdQuery = useMemoFirebase(() => {
     if (!db || !user) return null
     return collection(db, "users", user.uid, "sppds")
@@ -64,7 +72,8 @@ export function SppdCetakForm() {
         endDate: data.endDate || "-",
         letterNumber: data.stNumber || data.letterNumber || "-" // Backward compat
       }
-      const pdfBlob = await generateSuratTugasPDF(values, userData?.logoBase64)
+      const logoToUse = villageSettings?.logoBase64 || userData?.logoBase64
+      const pdfBlob = await generateSuratTugasPDF(values, logoToUse)
       const url = URL.createObjectURL(pdfBlob)
       window.open(url, "_blank")
       toast({ title: "Berhasil", description: "Surat tugas telah dibuat." })
@@ -88,7 +97,8 @@ export function SppdCetakForm() {
         totalExpense: data.amount?.toString() || "0",
         documentNumber: data.sppdNumber || data.documentNumber || "-" // Backward compat
       }
-      const pdfBlob = await generateSPPDPDF(values, userData?.logoBase64)
+      const logoToUse = villageSettings?.logoBase64 || userData?.logoBase64
+      const pdfBlob = await generateSPPDPDF(values, logoToUse)
       const url = URL.createObjectURL(pdfBlob)
       window.open(url, "_blank")
       toast({ title: "Berhasil", description: "Dokumen SPPD telah dibuat." })
